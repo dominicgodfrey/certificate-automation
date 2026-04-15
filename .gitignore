@@ -1,0 +1,13 @@
+# Credentials
+.env
+
+# Generated output
+output/
+
+# Python
+__pycache__/
+*.pyc
+
+# Temp render files
+templates/_render_*.html
+templates/_preview.html

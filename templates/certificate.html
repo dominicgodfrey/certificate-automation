@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Certificate</title>
+<style>
+  @font-face {
+    font-family: 'Alice';
+    src: url('../assets/fonts/Alice-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
+  @font-face {
+    font-family: 'Alex Brush';
+    src: url('../assets/fonts/AlexBrush-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
+  @page {
+    size: 11in 8.5in;
+    margin: 0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 11in;
+    height: 8.5in;
+    font-family: "Times New Roman", Times, serif;
+    color: #0c304e;
+  }
+  .page {
+    width: 11in;
+    height: 8.5in;
+    background: #eaf2fb;
+    padding: 0.35in;
+    position: relative;
+  }
+  .border {
+    width: 100%;
+    height: 100%;
+    border: 2px solid #0c304e;
+    padding: 0.55in 0.7in;
+    position: relative;
+  }
+  .content {
+    max-width: 6.5in;  /* must stay clear of ribbon's left edge (~6.6in) */
+  }
+  .header {
+    font-size: 44pt;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+  }
+  .date {
+    font-size: 14pt;
+    font-weight: normal;
+    margin-top: 0.1in;
+  }
+  .name {
+    font-family: "Alice", "Times New Roman", serif;
+    font-size: 60pt;
+    color: #000;
+    margin-top: 0.35in;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    display: inline-block;
+    max-width: 100%;
+  }
+  .completed {
+    font-size: 13pt;
+    font-weight: normal;
+    margin-top: 0.25in;
+  }
+  .program-title {
+    font-size: 24pt;
+    font-weight: bold;
+    margin-top: 0.05in;
+    white-space: nowrap;
+  }
+  .description {
+    font-size: 12pt;
+    font-weight: normal;
+    margin-top: 0.15in;
+    max-width: 5.5in;
+    line-height: 1.35;
+  }
+  .hours {
+    font-size: 15pt;
+    font-weight: bold;
+    margin-top: 0.25in;
+  }
+
+  /* Ribbon: nested divs for visible border on all sides including the V */
+  .ribbon-outer {
+    position: absolute;
+    top: 0;           /* starts at padding edge; certificate border stays continuous above */
+    right: 0.85in;
+    width: 2.15in;
+    height: 4.3in;
+    background: #0c304e;  /* border/trim color */
+    clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
+  }
+  .ribbon {
+    position: absolute;
+    top: 0;           /* no separate top trim — certificate border serves as the top edge */
+    left: 2px;
+    right: 2px;
+    bottom: 2px;
+    background: #c7d5ef;  /* matches logo background for seamless blend */
+    clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 0.55in;
+  }
+  .ribbon-title {
+    font-size: 16pt;
+    font-weight: bold;
+    text-align: center;
+    line-height: 1.2;
+    color: #0c304e;
+  }
+  .ribbon-logo {
+    margin-top: 0.85in;
+    width: 1.5in;
+  }
+
+  /* Signatures */
+  .signatures {
+    position: absolute;
+    bottom: 1.05in;
+    left: 0.95in;
+    right: 3.0in;  /* right edge aligns with ribbon's left edge */
+    display: flex;
+    gap: 0.35in;
+    justify-content: flex-start;
+  }
+  .signature {
+    flex: 1 1 0;
+    text-align: center;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .sig-cursive {
+    font-family: "Alex Brush", cursive;
+    font-size: 22pt;
+    color: #000;
+    line-height: 1.1;
+    margin-bottom: 0.04in;
+    white-space: nowrap;
+    display: inline-block;  /* shrinks to text width for measurement */
+  }
+  .sig-line {
+    border-top: 1px solid #0c304e;
+    width: 100%;
+  }
+  .sig-name {
+    font-size: 9pt;
+    font-weight: bold;
+    margin-top: 0.06in;
+    color: #0c304e;
+    white-space: nowrap;
+  }
+  .sig-degrees {
+    font-size: 9pt;
+    font-weight: bold;
+    color: #0c304e;
+    white-space: nowrap;
+  }
+  .sig-inst {
+    font-size: 9pt;
+    font-style: italic;
+    color: #0c304e;
+    margin-top: 0.02in;
+    white-space: nowrap;
+  }
+
+  .footer {
+    position: absolute;
+    bottom: 0.35in;
+    right: 0.55in;
+    font-size: 8pt;
+    text-align: right;
+    max-width: 2.4in;
+    line-height: 1.35;
+    color: #0c304e;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="border">
+      <div class="content">
+      <div class="header">ThinkNeuro, LLC</div>
+      <div class="date">{{ date }}</div>
+
+      <div class="name" id="student-name">{{ student_name }}</div>
+
+      <div class="completed">has successfully completed the</div>
+      <div class="program-title">{{ program_title }}</div>
+      <div class="description">{{ program_description }}</div>
+      <div class="hours">Hours Completed: {{ hours }}</div>
+      </div>
+
+      <div class="ribbon-outer">
+        <div class="ribbon">
+          <div class="ribbon-title">CERTIFICATE OF<br>COMPLETION</div>
+          <img src="../assets/logo.png" class="ribbon-logo" alt="ThinkNeuro logo">
+        </div>
+      </div>
+
+      <div class="signatures">
+        {% for sig in signatories %}
+        <div class="signature">
+          <div class="sig-cursive">{{ sig.cursive }}</div>
+          <div class="sig-line"></div>
+          <div class="sig-name">{{ sig.name }}</div>
+          <div class="sig-degrees">{{ sig.degrees }}</div>
+          <div class="sig-inst">{{ sig.institution }}</div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="footer">{{ footer }}</div>
+    </div>
+  </div>
+
+  <script>
+    document.fonts.ready.then(() => {
+      // Auto-shrink the student name if it's wider than its container.
+      const nameEl = document.getElementById('student-name');
+      if (nameEl) {
+        const maxWidth = nameEl.parentElement.clientWidth;
+        let size = 60;
+        nameEl.style.fontSize = size + 'pt';
+        while (nameEl.scrollWidth > maxWidth && size > 18) {
+          size -= 1;
+          nameEl.style.fontSize = size + 'pt';
+        }
+      }
+
+      // Auto-shrink individual signatures that overflow their container.
+      // All start at the same base size (22pt). Only ones that don't fit
+      // get individually reduced, so most signatures stay uniform.
+      document.querySelectorAll('.sig-cursive').forEach(el => {
+        const containerWidth = el.parentElement.clientWidth;
+        let size = 22;
+        el.style.fontSize = size + 'pt';
+        while (el.scrollWidth > containerWidth && size > 14) {
+          size -= 0.5;
+          el.style.fontSize = size + 'pt';
+        }
+      });
+    });
+  </script>
+</body>
+</html>

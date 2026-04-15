@@ -1,0 +1,44 @@
+# Certificate batch configuration
+# Edit this file (or override per-batch) to change what gets generated.
+# Email credentials are loaded from .env (never commit them).
+
+certificate:
+  date: "April 19th, 2026"
+  program_title: "Bibliometrics Research Internship Intensive"
+  program_description: >-
+    a foundational internship program in bibliometric methods, data analysis, and R
+    programming designed and led by software engineers, faculty, and physician
+    collaborators from Harvard, Stanford, and USC.
+  hours: "100"
+  footer: >-
+    ThinkNeuro, LLC is an education technology organization advancing early-stage
+    research through AI-supported learning experiences.
+  signatories:
+    - cursive: "Kaushik Venkatesh"
+      name: "Dr. Kaushik Venkatesh"
+      degrees: "MD, MBA, MPH"
+      institution: "Harvard Medical School"
+    - cursive: "Toby Barrack"
+      name: "Dr. Toby Barrack"
+      degrees: "MD, MBA"
+      institution: "Stanford School of Medicine"
+    - cursive: "Shriya Srinivasan"
+      name: "Prof. Shriya Srinivasan"
+      degrees: "PhD"
+      institution: "Harvard School of Engineering"
+
+email:
+  subject: "Your Bibliometrics Research Internship Intensive Certificate"
+  # $first_name is replaced with the student's first name
+  body: |
+    Dear $first_name,
+
+    Congratulations on your successful completion of the Bibliometrics Research
+    Internship Intensive! Your certificate is attached to this email.
+
+    - The ThinkNeuro Team
+
+spreadsheet:
+  path: "data/students.csv"
+  name_column: "name"
+  email_column: "email"
