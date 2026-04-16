@@ -1,0 +1,697 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — ThinkNeuro Certificates{% endblock %}
+
+{% block extra_css %}
+.page-container { max-width: 820px; }
+.section {
+  background: var(--white);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  padding: 1.75rem;
+  margin-bottom: 1.25rem;
+}
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 2px solid var(--blue-bg);
+}
+
+/* Preset bar */
+.preset-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.preset-bar .form-group { flex: 1; min-width: 200px; margin-bottom: 0; }
+.preset-bar .btn { height: 38px; }
+
+/* Two-column layout */
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1.25rem;
+}
+@media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
+
+/* Textarea */
+.form-textarea {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  font-family: var(--font);
+  font-size: 0.9rem;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--gray-800);
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(12, 48, 78, 0.1);
+}
+
+/* Signatories */
+.signatory-card {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+.signatory-card .row { gap: 0 1rem; }
+.signatory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.signatory-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--navy);
+}
+.btn-remove {
+  background: none;
+  border: none;
+  color: var(--gray-400);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.btn-remove:hover { color: var(--red-500); background: var(--red-50); }
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  top: 72px;
+  right: 1rem;
+  background: var(--navy);
+  color: var(--white);
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: var(--shadow-md);
+  transform: translateX(120%);
+  transition: transform 0.3s ease;
+  z-index: 1000;
+}
+.toast.show { transform: translateX(0); }
+
+/* Placeholder text */
+.placeholder-text {
+  color: var(--gray-400);
+  font-size: 0.9rem;
+}
+
+/* Upload area */
+.upload-area {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.upload-filename {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+
+/* Divider */
+.divider-or {
+  text-align: center;
+  margin: 1.25rem 0;
+  position: relative;
+}
+.divider-or::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--gray-200);
+}
+.divider-or span {
+  background: var(--white);
+  padding: 0 1rem;
+  position: relative;
+  color: var(--gray-400);
+  font-size: 0.85rem;
+}
+
+/* Student list */
+.student-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.student-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+}
+.student-row {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--gray-100);
+  font-size: 0.875rem;
+}
+.student-row:last-child { border-bottom: none; }
+.student-row:hover { background: var(--gray-50); }
+.student-row .s-name {
+  flex: 1;
+  font-weight: 500;
+  color: var(--gray-800);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.student-row .s-email {
+  flex: 1;
+  color: var(--gray-600);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.student-row .btn-remove {
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+{% endblock %}
+
+{% block content %}
+<div class="page-container">
+
+  <!-- Preset Management -->
+  <div class="section">
+    <div class="section-title">Template Preset</div>
+    <div class="preset-bar">
+      <div class="form-group">
+        <select class="form-input" id="preset-select">
+          <option value="">— Select a preset —</option>
+          {% for p in presets %}
+          <option value="{{ p.id }}" {% if active_preset_id == p.id %}selected{% endif %}>
+            {{ p.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-secondary" onclick="loadPreset()">Load</button>
+      <button class="btn btn-primary" onclick="savePreset()">Save</button>
+      <button class="btn btn-danger" onclick="deletePreset()">Delete</button>
+    </div>
+  </div>
+
+  <!-- Certificate Settings -->
+  <div class="section">
+    <div class="section-title">Certificate Settings</div>
+    <form id="cert-form">
+      <div class="row">
+        <div class="form-group">
+          <label class="form-label" for="program_title">Program Title</label>
+          <input class="form-input" type="text" id="program_title" name="program_title"
+                 value="{{ active_config.program_title if active_config else '' }}"
+                 placeholder="e.g. Bibliometrics Research Internship Intensive">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="date">Date</label>
+          <input class="form-input" type="text" id="date" name="date"
+                 value="{{ active_config.date if active_config else '' }}"
+                 placeholder="e.g. April 19th, 2026">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="form-group">
+          <label class="form-label" for="hours">Hours Completed</label>
+          <input class="form-input" type="text" id="hours" name="hours"
+                 value="{{ active_config.hours if active_config else '' }}"
+                 placeholder="e.g. 100">
+        </div>
+        <div class="form-group"></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="program_description">Program Description</label>
+        <textarea class="form-textarea" id="program_description" name="program_description"
+                  placeholder="e.g. a foundational internship program in...">{{ active_config.program_description if active_config else '' }}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="footer">Footer Text</label>
+        <textarea class="form-textarea" id="footer" name="footer" style="min-height: 50px;"
+                  placeholder="e.g. ThinkNeuro, LLC is an education technology organization...">{{ active_config.footer if active_config else '' }}</textarea>
+      </div>
+    </form>
+  </div>
+
+  <!-- Signatories -->
+  <div class="section">
+    <div class="section-title">Signatories</div>
+    <div id="signatories-container">
+      {% if active_config and active_config.signatories %}
+        {% for sig in active_config.signatories %}
+        <div class="signatory-card" data-index="{{ loop.index0 }}">
+          <div class="signatory-header">
+            <span class="signatory-label">Signatory {{ loop.index }}</span>
+            <button class="btn-remove" onclick="removeSignatory(this)" title="Remove">&times;</button>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label class="form-label">Signature (cursive name)</label>
+              <input class="form-input sig-cursive" type="text" value="{{ sig.cursive }}"
+                     placeholder="e.g. Kaushik Venkatesh">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Formal Name</label>
+              <input class="form-input sig-name" type="text" value="{{ sig.name }}"
+                     placeholder="e.g. Dr. Kaushik Venkatesh">
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label class="form-label">Degrees</label>
+              <input class="form-input sig-degrees" type="text" value="{{ sig.degrees }}"
+                     placeholder="e.g. MD, MBA, MPH">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Institution</label>
+              <input class="form-input sig-institution" type="text" value="{{ sig.institution }}"
+                     placeholder="e.g. Harvard Medical School">
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+    <button class="btn btn-secondary" onclick="addSignatory()">+ Add Signatory</button>
+  </div>
+
+  <!-- Student Data -->
+  <div class="section">
+    <div class="section-title">Student Data</div>
+
+    <!-- CSV Upload -->
+    <div class="form-group">
+      <label class="form-label">Upload Student Spreadsheet</label>
+      <div class="upload-area" id="upload-area">
+        <input type="file" id="csv-file" accept=".csv,.xlsx,.xls" style="display:none"
+               onchange="handleFileUpload(this)">
+        <button class="btn btn-secondary" onclick="document.getElementById('csv-file').click()">
+          Choose CSV or XLSX File
+        </button>
+        <span class="upload-filename" id="upload-filename"></span>
+      </div>
+    </div>
+
+    <!-- Column Mapping (hidden until file uploaded) -->
+    <div id="column-mapping" style="display:none;">
+      <div class="row">
+        <div class="form-group">
+          <label class="form-label">Which column contains the student name?</label>
+          <select class="form-input" id="name-col-select" onchange="applyColumnMapping()">
+            <option value="">— Select column —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Which column contains the email?</label>
+          <select class="form-input" id="email-col-select" onchange="applyColumnMapping()">
+            <option value="">— Select column —</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Divider -->
+    <div class="divider-or" id="divider-or">
+      <span>or add students manually</span>
+    </div>
+
+    <!-- Manual Entry -->
+    <div class="manual-entry">
+      <div class="row">
+        <div class="form-group" style="margin-bottom:0.5rem;">
+          <input class="form-input" type="text" id="manual-name" placeholder="Student name">
+        </div>
+        <div class="form-group" style="margin-bottom:0.5rem;">
+          <input class="form-input" type="email" id="manual-email" placeholder="Student email">
+        </div>
+      </div>
+      <button class="btn btn-secondary" onclick="addManualStudent()" style="margin-bottom:1rem;">
+        + Add Student
+      </button>
+    </div>
+
+    <!-- Student List -->
+    <div id="student-list-wrapper" style="display:none;">
+      <div class="student-list-header">
+        <span class="form-label" style="margin-bottom:0;">Students (<span id="student-count">0</span>)</span>
+        <button class="btn-remove" onclick="clearAllStudents()" title="Clear all"
+                style="font-size:0.8rem; color:var(--red-500);">Clear All</button>
+      </div>
+      <div class="student-list" id="student-list"></div>
+    </div>
+  </div>
+
+  <!-- Generate Preview -->
+  <div class="section" style="text-align:right;">
+    <button class="btn btn-primary" onclick="generatePreview()" style="padding:0.75rem 2rem; font-size:1rem;">
+      Generate Preview →
+    </button>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  function getConfig() {
+    const sigs = [];
+    document.querySelectorAll('.signatory-card').forEach(card => {
+      sigs.push({
+        cursive: card.querySelector('.sig-cursive').value,
+        name: card.querySelector('.sig-name').value,
+        degrees: card.querySelector('.sig-degrees').value,
+        institution: card.querySelector('.sig-institution').value,
+      });
+    });
+    return {
+      program_title: document.getElementById('program_title').value,
+      date: document.getElementById('date').value,
+      hours: document.getElementById('hours').value,
+      program_description: document.getElementById('program_description').value,
+      footer: document.getElementById('footer').value,
+      signatories: sigs,
+    };
+  }
+
+  function setConfig(cfg) {
+    document.getElementById('program_title').value = cfg.program_title || '';
+    document.getElementById('date').value = cfg.date || '';
+    document.getElementById('hours').value = cfg.hours || '';
+    document.getElementById('program_description').value = cfg.program_description || '';
+    document.getElementById('footer').value = cfg.footer || '';
+    const container = document.getElementById('signatories-container');
+    container.innerHTML = '';
+    sigCount = 0;
+    (cfg.signatories || []).forEach(sig => addSignatory(sig));
+  }
+
+  let sigCount = document.querySelectorAll('.signatory-card').length;
+
+  function addSignatory(data) {
+    sigCount++;
+    const container = document.getElementById('signatories-container');
+    const card = document.createElement('div');
+    card.className = 'signatory-card';
+    card.innerHTML = `
+      <div class="signatory-header">
+        <span class="signatory-label">Signatory ${sigCount}</span>
+        <button class="btn-remove" onclick="removeSignatory(this)" title="Remove">&times;</button>
+      </div>
+      <div class="row">
+        <div class="form-group">
+          <label class="form-label">Signature (cursive name)</label>
+          <input class="form-input sig-cursive" type="text"
+                 value="${data ? (data.cursive || '') : ''}"
+                 placeholder="e.g. Kaushik Venkatesh">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Formal Name</label>
+          <input class="form-input sig-name" type="text"
+                 value="${data ? (data.name || '') : ''}"
+                 placeholder="e.g. Dr. Kaushik Venkatesh">
+        </div>
+      </div>
+      <div class="row">
+        <div class="form-group">
+          <label class="form-label">Degrees</label>
+          <input class="form-input sig-degrees" type="text"
+                 value="${data ? (data.degrees || '') : ''}"
+                 placeholder="e.g. MD, MBA, MPH">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Institution</label>
+          <input class="form-input sig-institution" type="text"
+                 value="${data ? (data.institution || '') : ''}"
+                 placeholder="e.g. Harvard Medical School">
+        </div>
+      </div>
+    `;
+    container.appendChild(card);
+  }
+
+  function removeSignatory(btn) {
+    if (document.querySelectorAll('.signatory-card').length <= 1) {
+      showToast('At least one signatory is required');
+      return;
+    }
+    btn.closest('.signatory-card').remove();
+    renumberSignatories();
+  }
+
+  function renumberSignatories() {
+    document.querySelectorAll('.signatory-card').forEach((card, i) => {
+      card.querySelector('.signatory-label').textContent = `Signatory ${i + 1}`;
+    });
+    sigCount = document.querySelectorAll('.signatory-card').length;
+  }
+
+  async function loadPreset() {
+    const sel = document.getElementById('preset-select');
+    if (!sel.value) { showToast('Select a preset first'); return; }
+    const res = await fetch(`/presets/load/${sel.value}`);
+    const data = await res.json();
+    if (res.ok) {
+      setConfig(data.config);
+      showToast(`Loaded "${data.name}"`);
+    } else {
+      showToast(data.error || 'Failed to load');
+    }
+  }
+
+  async function savePreset() {
+    const sel = document.getElementById('preset-select');
+    const existingName = sel.value ? sel.options[sel.selectedIndex].text.trim() : '';
+    const name = prompt('Save preset as:', existingName);
+    if (!name) return;
+
+    const res = await fetch('/presets/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, config: getConfig() }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(data.message);
+      setTimeout(() => location.reload(), 500);
+    } else {
+      showToast(data.error || 'Failed to save');
+    }
+  }
+
+  async function deletePreset() {
+    const sel = document.getElementById('preset-select');
+    if (!sel.value) { showToast('Select a preset first'); return; }
+    const name = sel.options[sel.selectedIndex].text.trim();
+    if (!confirm(`Delete preset "${name}"? This cannot be undone.`)) return;
+
+    const res = await fetch(`/presets/delete/${sel.value}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(data.message);
+      setTimeout(() => location.reload(), 500);
+    } else {
+      showToast(data.error || 'Failed to delete');
+    }
+  }
+
+  // Initialize with one empty signatory if none loaded
+  if (document.querySelectorAll('.signatory-card').length === 0) {
+    addSignatory();
+  }
+
+  // --- Student data management ---
+  let students = [];
+  let csvHeaders = [];
+  let csvRows = [];
+
+  function renderStudentList() {
+    const wrapper = document.getElementById('student-list-wrapper');
+    const list = document.getElementById('student-list');
+    const count = document.getElementById('student-count');
+
+    if (students.length === 0) {
+      wrapper.style.display = 'none';
+      return;
+    }
+
+    wrapper.style.display = 'block';
+    count.textContent = students.length;
+    list.innerHTML = students.map((s, i) => `
+      <div class="student-row">
+        <span class="s-name">${escapeHtml(s.name)}</span>
+        <span class="s-email">${escapeHtml(s.email)}</span>
+        <button class="btn-remove" onclick="removeStudent(${i})" title="Remove">&times;</button>
+      </div>
+    `).join('');
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function removeStudent(index) {
+    students.splice(index, 1);
+    renderStudentList();
+  }
+
+  function clearAllStudents() {
+    if (!confirm('Remove all students from the list?')) return;
+    students = [];
+    renderStudentList();
+  }
+
+  // --- CSV upload ---
+  async function handleFileUpload(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    document.getElementById('upload-filename').textContent = file.name;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch('/upload-csv', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showToast(data.error || 'Failed to upload file');
+      return;
+    }
+
+    csvHeaders = data.headers;
+    csvRows = data.rows;
+
+    // Populate column mapping dropdowns
+    const nameSelect = document.getElementById('name-col-select');
+    const emailSelect = document.getElementById('email-col-select');
+
+    nameSelect.innerHTML = '<option value="">— Select column —</option>';
+    emailSelect.innerHTML = '<option value="">— Select column —</option>';
+
+    csvHeaders.forEach((h, i) => {
+      nameSelect.innerHTML += `<option value="${i}">${escapeHtml(h)}</option>`;
+      emailSelect.innerHTML += `<option value="${i}">${escapeHtml(h)}</option>`;
+    });
+
+    document.getElementById('column-mapping').style.display = 'block';
+    showToast(`Loaded ${csvRows.length} rows from ${file.name}`);
+  }
+
+  function applyColumnMapping() {
+    const nameIdx = document.getElementById('name-col-select').value;
+    const emailIdx = document.getElementById('email-col-select').value;
+
+    if (nameIdx === '' || emailIdx === '') return;
+    if (nameIdx === emailIdx) {
+      showToast('Name and email columns must be different');
+      return;
+    }
+
+    // Replace CSV-sourced students (keep manually added ones)
+    const manualStudents = students.filter(s => s.source === 'manual');
+    const csvStudents = csvRows
+      .map(row => ({
+        name: (row[parseInt(nameIdx)] || '').trim(),
+        email: (row[parseInt(emailIdx)] || '').trim(),
+        source: 'csv',
+      }))
+      .filter(s => s.name && s.email);
+
+    students = [...csvStudents, ...manualStudents];
+    renderStudentList();
+    showToast(`Mapped ${csvStudents.length} students from CSV`);
+  }
+
+  // --- Manual entry ---
+  function addManualStudent() {
+    const nameInput = document.getElementById('manual-name');
+    const emailInput = document.getElementById('manual-email');
+    const name = nameInput.value.trim();
+    const email = emailInput.value.trim();
+
+    if (!name || !email) {
+      showToast('Enter both a name and email');
+      return;
+    }
+    if (!email.includes('@')) {
+      showToast('Enter a valid email address');
+      return;
+    }
+
+    students.push({ name, email, source: 'manual' });
+    nameInput.value = '';
+    emailInput.value = '';
+    nameInput.focus();
+    renderStudentList();
+  }
+
+  // Allow Enter key to add manual student
+  document.getElementById('manual-email').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addManualStudent(); }
+  });
+
+  // --- Generate preview ---
+  async function generatePreview() {
+    if (students.length === 0) {
+      showToast('Add at least one student first');
+      return;
+    }
+
+    const config = getConfig();
+    if (!config.program_title) {
+      showToast('Enter a program title first');
+      return;
+    }
+
+    // Strip the source field before sending
+    const cleanStudents = students.map(s => ({ name: s.name, email: s.email }));
+
+    const res = await fetch('/generate-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config, students: cleanStudents }),
+    });
+    const data = await res.json();
+
+    if (res.ok && data.redirect) {
+      window.location.href = data.redirect;
+    } else {
+      showToast(data.error || 'Failed to generate preview');
+    }
+  }
+</script>
+{% endblock %}

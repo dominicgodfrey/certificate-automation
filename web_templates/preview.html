@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% block title %}Preview — ThinkNeuro Certificates{% endblock %}
+
+{% block extra_css %}
+.page-container { max-width: 960px; }
+.section {
+  background: var(--white);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  padding: 1.75rem;
+  margin-bottom: 1.25rem;
+}
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 2px solid var(--blue-bg);
+}
+
+/* Summary grid */
+.summary-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem 2rem;
+  font-size: 0.9rem;
+}
+.summary-label { font-weight: 600; color: var(--navy); }
+.summary-value { color: var(--gray-600); }
+
+/* Certificate preview image */
+.cert-preview-container {
+  text-align: center;
+  padding: 1rem 0;
+}
+.cert-preview-img {
+  max-width: 100%;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.cert-preview-loading {
+  color: var(--gray-400);
+  font-size: 0.9rem;
+  padding: 3rem;
+}
+.cert-preview-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+
+/* Search bar */
+.search-bar {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.search-bar .form-input { flex: 1; }
+
+/* Student table */
+.student-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.student-table th {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  background: var(--gray-50);
+  color: var(--navy);
+  font-weight: 600;
+  border-bottom: 2px solid var(--gray-200);
+}
+.student-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--gray-100);
+  color: var(--gray-800);
+}
+.student-table tr:hover td { background: var(--gray-50); }
+.student-table .btn-preview {
+  background: none;
+  border: 1px solid var(--gray-300);
+  color: var(--navy);
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: var(--font);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.student-table .btn-preview:hover {
+  background: var(--navy);
+  color: var(--white);
+  border-color: var(--navy);
+}
+
+/* Action bar */
+.action-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.action-bar-right { display: flex; gap: 0.75rem; }
+
+/* No results */
+.no-results {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--gray-400);
+  font-size: 0.9rem;
+}
+{% endblock %}
+
+{% block content %}
+<div class="page-container">
+
+  <!-- Certificate summary -->
+  <div class="section">
+    <div class="section-title">Certificate Settings Summary</div>
+    <div class="summary-grid">
+      <span class="summary-label">Program Title</span>
+      <span class="summary-value">{{ config.program_title }}</span>
+      <span class="summary-label">Date</span>
+      <span class="summary-value">{{ config.date }}</span>
+      <span class="summary-label">Hours Completed</span>
+      <span class="summary-value">{{ config.hours }}</span>
+      <span class="summary-label">Signatories</span>
+      <span class="summary-value">
+        {% for sig in config.signatories %}
+          {{ sig.name }}{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </span>
+    </div>
+  </div>
+
+  <!-- Sample certificate preview -->
+  <div class="section">
+    <div class="section-title">Certificate Preview</div>
+    <div class="cert-preview-container">
+      <div class="cert-preview-loading" id="preview-loading">Rendering certificate...</div>
+      <img class="cert-preview-img" id="preview-img" style="display:none;"
+           alt="Certificate preview">
+    </div>
+    <div class="cert-preview-nav">
+      <button class="btn btn-secondary" onclick="previewPrev()" id="prev-btn" disabled
+              style="padding:0.3rem 0.75rem; font-size:0.85rem;">← Previous</button>
+      <span id="preview-label">Student 1 of {{ students|length }}</span>
+      <button class="btn btn-secondary" onclick="previewNext()" id="next-btn"
+              style="padding:0.3rem 0.75rem; font-size:0.85rem;"
+              {% if students|length <= 1 %}disabled{% endif %}>Next →</button>
+    </div>
+  </div>
+
+  <!-- Student list with search -->
+  <div class="section">
+    <div class="section-title">Students ({{ students|length }})</div>
+    <div class="search-bar">
+      <input class="form-input" type="text" id="student-search"
+             placeholder="Search by name or email..." oninput="filterStudents()">
+    </div>
+    <table class="student-table" id="student-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in students %}
+        <tr data-name="{{ s.name|lower }}" data-email="{{ s.email|lower }}">
+          <td>{{ loop.index }}</td>
+          <td>{{ s.name }}</td>
+          <td>{{ s.email }}</td>
+          <td>
+            <button class="btn-preview" onclick="showStudentPreview({{ loop.index0 }})">
+              Preview
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="no-results" id="no-results" style="display:none;">
+      No students match your search.
+    </div>
+  </div>
+
+  <!-- Action buttons -->
+  <div class="section">
+    <div class="action-bar">
+      <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">← Back to Settings</a>
+      <div class="action-bar-right">
+        <button class="btn btn-secondary" onclick="downloadAll()">Download All PDFs</button>
+        <button class="btn btn-primary" onclick="sendAll()">Send All Certificates</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Loading overlay -->
+<div id="loading-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5);
+     z-index:9999; display:none; align-items:center; justify-content:center;">
+  <div style="background:white; padding:2rem 3rem; border-radius:12px; text-align:center;
+              box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+    <div style="font-size:1.1rem; font-weight:600; color:#0c304e; margin-bottom:0.5rem;"
+         id="loading-title">Processing...</div>
+    <div style="font-size:0.9rem; color:#475569;" id="loading-msg">
+      Generating certificates and sending emails. This may take a few minutes.
+    </div>
+  </div>
+</div>
+
+<script>
+  // --- Certificate preview navigation ---
+  let currentPreviewIndex = 0;
+  const totalStudents = {{ students|length }};
+
+  function loadPreviewImage(index) {
+    const img = document.getElementById('preview-img');
+    const loading = document.getElementById('preview-loading');
+    const label = document.getElementById('preview-label');
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+
+    // Show loading state
+    img.style.display = 'none';
+    loading.style.display = 'block';
+    loading.textContent = 'Rendering certificate...';
+
+    // Update navigation
+    currentPreviewIndex = index;
+    label.textContent = `Student ${index + 1} of ${totalStudents}`;
+    prevBtn.disabled = index === 0;
+    nextBtn.disabled = index >= totalStudents - 1;
+
+    // Load the rendered image
+    const cacheBust = Date.now();
+    img.onload = () => {
+      loading.style.display = 'none';
+      img.style.display = 'block';
+    };
+    img.onerror = () => {
+      loading.textContent = 'Failed to render certificate.';
+    };
+    img.src = `/preview/render-image/${index}?t=${cacheBust}`;
+  }
+
+  function previewPrev() {
+    if (currentPreviewIndex > 0) loadPreviewImage(currentPreviewIndex - 1);
+  }
+
+  function previewNext() {
+    if (currentPreviewIndex < totalStudents - 1) loadPreviewImage(currentPreviewIndex + 1);
+  }
+
+  function showStudentPreview(index) {
+    // Scroll to preview section and load that student's certificate
+    document.querySelector('.cert-preview-container').scrollIntoView({ behavior: 'smooth' });
+    loadPreviewImage(index);
+  }
+
+  // --- Student search/filter ---
+  function filterStudents() {
+    const query = document.getElementById('student-search').value.toLowerCase().trim();
+    const rows = document.querySelectorAll('#student-table tbody tr');
+    let visible = 0;
+
+    rows.forEach(row => {
+      const name = row.getAttribute('data-name') || '';
+      const email = row.getAttribute('data-email') || '';
+      const match = !query || name.includes(query) || email.includes(query);
+      row.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+
+    document.getElementById('no-results').style.display = visible === 0 ? 'block' : 'none';
+  }
+
+  // --- Load first student's certificate on page load ---
+  if (totalStudents > 0) {
+    loadPreviewImage(0);
+  }
+
+  // --- Send all certificates ---
+  async function sendAll() {
+    const count = {{ students|length }};
+    if (!confirm(`You are about to email ${count} student${count !== 1 ? 's' : ''}. Are you sure?`)) {
+      return;
+    }
+
+    const overlay = document.getElementById('loading-overlay');
+    overlay.style.display = 'flex';
+    document.getElementById('loading-title').textContent = 'Starting job...';
+    document.getElementById('loading-msg').textContent = 'Setting up certificate generation.';
+
+    try {
+      const res = await fetch('/send-certificates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const data = await res.json();
+      if (res.ok && data.redirect) {
+        window.location.href = data.redirect;
+      } else {
+        overlay.style.display = 'none';
+        alert(data.error || 'Failed to start job');
+      }
+    } catch (e) {
+      overlay.style.display = 'none';
+      alert('Request failed: ' + e.message);
+    }
+  }
+
+  // --- Download all PDFs ---
+  async function downloadAll() {
+    const overlay = document.getElementById('loading-overlay');
+    overlay.style.display = 'flex';
+    document.getElementById('loading-title').textContent = 'Generating PDFs...';
+    document.getElementById('loading-msg').textContent =
+      'Rendering all certificates. This may take a moment.';
+
+    try {
+      const res = await fetch('/download-all', { method: 'POST' });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'certificates.zip';
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to generate PDFs');
+      }
+    } catch (e) {
+      alert('Request failed: ' + e.message);
+    }
+    overlay.style.display = 'none';
+  }
+</script>
+{% endblock %}

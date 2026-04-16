@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Results — ThinkNeuro Certificates{% endblock %}
+
+{% block extra_css %}
+.page-container { max-width: 960px; }
+.section {
+  background: var(--white);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  padding: 1.75rem;
+  margin-bottom: 1.25rem;
+}
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 2px solid var(--blue-bg);
+}
+
+/* Summary banner */
+.summary-banner {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+.summary-stat {
+  flex: 1;
+  text-align: center;
+  padding: 1rem;
+  border-radius: var(--radius);
+}
+.summary-stat.total {
+  background: var(--blue-bg);
+  border: 1px solid var(--blue-muted);
+}
+.summary-stat.success {
+  background: var(--green-50);
+  border: 1px solid #bbf7d0;
+}
+.summary-stat.failed {
+  background: var(--red-50);
+  border: 1px solid #fecaca;
+}
+.stat-number {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.stat-number.total-num { color: var(--navy); }
+.stat-number.success-num { color: var(--green-500); }
+.stat-number.failed-num { color: var(--red-500); }
+.stat-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 0.3rem;
+}
+.stat-label.total-label { color: var(--navy); }
+.stat-label.success-label { color: #16a34a; }
+.stat-label.failed-label { color: #dc2626; }
+
+/* Results table */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.results-table th {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  background: var(--gray-50);
+  color: var(--navy);
+  font-weight: 600;
+  border-bottom: 2px solid var(--gray-200);
+}
+.results-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--gray-100);
+  color: var(--gray-800);
+}
+.results-table tr:hover td { background: var(--gray-50); }
+
+/* Status badges */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge-sent {
+  background: var(--green-50);
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+}
+.badge-failed {
+  background: var(--red-50);
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.error-text {
+  font-size: 0.8rem;
+  color: var(--red-500);
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Action bar */
+.action-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+{% endblock %}
+
+{% block content %}
+<div class="page-container">
+
+  <!-- Summary banner -->
+  <div class="section">
+    <div class="section-title">Send Results — {{ config.program_title }}</div>
+    {% set total = results|length %}
+    {% set succeeded = results|selectattr('status', 'equalto', 'sent')|list|length %}
+    {% set failed_count = results|selectattr('status', 'equalto', 'failed')|list|length %}
+    <div class="summary-banner">
+      <div class="summary-stat total">
+        <div class="stat-number total-num">{{ total }}</div>
+        <div class="stat-label total-label">Total</div>
+      </div>
+      <div class="summary-stat success">
+        <div class="stat-number success-num">{{ succeeded }}</div>
+        <div class="stat-label success-label">Sent</div>
+      </div>
+      <div class="summary-stat failed" {% if failed_count == 0 %}style="opacity:0.5"{% endif %}>
+        <div class="stat-number failed-num">{{ failed_count }}</div>
+        <div class="stat-label failed-label">Failed</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results table -->
+  <div class="section">
+    <div class="section-title">Details</div>
+
+    <!-- Filter -->
+    <div style="margin-bottom:1rem; display:flex; gap:0.75rem; align-items:center;">
+      <select class="form-input" id="status-filter" onchange="filterResults()" style="max-width:200px;">
+        <option value="all">All students</option>
+        <option value="sent">Sent only</option>
+        <option value="failed">Failed only</option>
+      </select>
+      <input class="form-input" type="text" id="result-search" placeholder="Search..."
+             oninput="filterResults()" style="flex:1;">
+    </div>
+
+    <table class="results-table" id="results-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Status</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr data-status="{{ r.status }}"
+            data-name="{{ r.name|lower }}"
+            data-email="{{ r.email|lower }}">
+          <td>{{ loop.index }}</td>
+          <td>{{ r.name }}</td>
+          <td>{{ r.email }}</td>
+          <td>
+            {% if r.status == 'sent' %}
+              <span class="badge badge-sent">Sent</span>
+            {% else %}
+              <span class="badge badge-failed">Failed</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.error %}
+              <span class="error-text" title="{{ r.error }}">{{ r.error }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Action bar -->
+  <div class="section">
+    <div class="action-bar">
+      <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">← New Batch</a>
+      {% if failed_count > 0 %}
+      <button class="btn btn-primary" onclick="retryFailed()">Retry Failed ({{ failed_count }})</button>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function filterResults() {
+    const status = document.getElementById('status-filter').value;
+    const query = document.getElementById('result-search').value.toLowerCase().trim();
+    const rows = document.querySelectorAll('#results-table tbody tr');
+
+    rows.forEach(row => {
+      const rowStatus = row.getAttribute('data-status');
+      const name = row.getAttribute('data-name') || '';
+      const email = row.getAttribute('data-email') || '';
+
+      const statusMatch = status === 'all' || rowStatus === status;
+      const searchMatch = !query || name.includes(query) || email.includes(query);
+
+      row.style.display = (statusMatch && searchMatch) ? '' : 'none';
+    });
+  }
+
+  function retryFailed() {
+    alert('Retry functionality would re-send only failed certificates. This will be wired up with the backend retry endpoint.');
+  }
+</script>
+{% endblock %}

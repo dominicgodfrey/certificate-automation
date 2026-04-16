@@ -1,4 +1,4 @@
-# Credentials
+# Credentials — NEVER commit these
 .env
 
 # Generated output
@@ -11,3 +11,6 @@ __pycache__/
 # Temp render files
 templates/_render_*.html
 templates/_preview.html
+
+# DB
+data/app.db

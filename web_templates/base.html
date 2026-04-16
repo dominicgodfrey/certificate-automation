@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ThinkNeuro Certificates{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --navy: #0c304e;
+      --navy-light: #1a4a6e;
+      --blue-bg: #eaf2fb;
+      --blue-muted: #c7d5ef;
+      --white: #ffffff;
+      --gray-50: #f8fafc;
+      --gray-100: #f1f5f9;
+      --gray-200: #e2e8f0;
+      --gray-300: #cbd5e1;
+      --gray-400: #94a3b8;
+      --gray-600: #475569;
+      --gray-800: #1e293b;
+      --red-500: #ef4444;
+      --red-50: #fef2f2;
+      --green-500: #22c55e;
+      --green-50: #f0fdf4;
+      --font: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --radius: 8px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+      --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--blue-bg);
+      color: var(--gray-800);
+      min-height: 100vh;
+    }
+
+    /* --- Top nav bar (shown when logged in) --- */
+    .navbar {
+      background: var(--navy);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .navbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      text-decoration: none;
+    }
+    .navbar-brand img {
+      height: 32px;
+    }
+    .navbar-brand span {
+      color: var(--white);
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .navbar-right {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .navbar-user {
+      color: var(--gray-300);
+      font-size: 0.875rem;
+    }
+    .navbar-link {
+      color: var(--blue-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .navbar-link:hover {
+      color: var(--white);
+    }
+
+    /* --- Buttons --- */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.6rem 1.25rem;
+      font-family: var(--font);
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: var(--navy);
+      color: var(--white);
+    }
+    .btn-primary:hover {
+      background: var(--navy-light);
+    }
+    .btn-secondary {
+      background: var(--white);
+      color: var(--navy);
+      border: 1px solid var(--gray-300);
+    }
+    .btn-secondary:hover {
+      background: var(--gray-50);
+      border-color: var(--gray-400);
+    }
+    .btn-danger {
+      background: var(--red-500);
+      color: var(--white);
+    }
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+    .btn-full {
+      width: 100%;
+    }
+
+    /* --- Form elements --- */
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+    .form-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--navy);
+      margin-bottom: 0.4rem;
+    }
+    .form-input {
+      width: 100%;
+      padding: 0.6rem 0.8rem;
+      font-family: var(--font);
+      font-size: 0.9rem;
+      border: 1px solid var(--gray-300);
+      border-radius: var(--radius);
+      background: var(--white);
+      color: var(--gray-800);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: var(--navy);
+      box-shadow: 0 0 0 3px rgba(12, 48, 78, 0.1);
+    }
+
+    /* --- Flash messages --- */
+    .flash {
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    .flash-error {
+      background: var(--red-50);
+      color: var(--red-500);
+      border: 1px solid #fecaca;
+    }
+    .flash-success {
+      background: var(--green-50);
+      color: var(--green-500);
+      border: 1px solid #bbf7d0;
+    }
+
+    /* --- Card container --- */
+    .card {
+      background: var(--white);
+      border-radius: 12px;
+      box-shadow: var(--shadow-md);
+      padding: 2rem;
+    }
+
+    /* --- Page container --- */
+    .page-container {
+      max-width: 960px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+
+    {% block extra_css %}{% endblock %}
+  </style>
+</head>
+<body>
+  {% if current_user and current_user.is_authenticated %}
+  <nav class="navbar">
+    <a href="{{ url_for('dashboard') }}" class="navbar-brand">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="ThinkNeuro">
+      <span>Certificates</span>
+    </a>
+    <div class="navbar-right">
+      <span class="navbar-user">{{ current_user.username }}</span>
+      <a href="{{ url_for('logout') }}" class="navbar-link">Log out</a>
+    </div>
+  </nav>
+  {% endif %}
+
+  {% block content %}{% endblock %}
+</body>
+</html>

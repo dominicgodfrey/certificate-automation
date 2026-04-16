@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+{% block title %}Sending — ThinkNeuro Certificates{% endblock %}
+
+{% block extra_css %}
+.page-container { max-width: 960px; }
+.section {
+  background: var(--white);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  padding: 1.75rem;
+  margin-bottom: 1.25rem;
+}
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 2px solid var(--blue-bg);
+}
+
+/* Progress bar */
+.progress-container {
+  margin: 1.5rem 0;
+}
+.progress-bar-bg {
+  width: 100%;
+  height: 28px;
+  background: var(--gray-100);
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: var(--navy);
+  border-radius: 14px;
+  transition: width 0.4s ease;
+  min-width: 0;
+}
+.progress-text {
+  text-align: center;
+  margin-top: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--navy);
+}
+.progress-subtext {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--gray-400);
+  margin-top: 0.25rem;
+}
+
+/* Status indicator */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.status-dot.running { background: #f59e0b; animation: pulse 1.5s infinite; }
+.status-dot.complete { background: var(--green-500); }
+.status-dot.failed { background: var(--red-500); }
+.status-dot.queued { background: var(--gray-400); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Summary banner */
+.summary-banner {
+  display: flex;
+  gap: 1.5rem;
+  margin: 1rem 0;
+}
+.summary-stat {
+  flex: 1;
+  text-align: center;
+  padding: 1rem;
+  border-radius: var(--radius);
+}
+.summary-stat.total { background: var(--blue-bg); border: 1px solid var(--blue-muted); }
+.summary-stat.success { background: var(--green-50); border: 1px solid #bbf7d0; }
+.summary-stat.failed { background: var(--red-50); border: 1px solid #fecaca; }
+.stat-number { font-size: 2rem; font-weight: 700; line-height: 1; }
+.stat-number.total-num { color: var(--navy); }
+.stat-number.success-num { color: var(--green-500); }
+.stat-number.failed-num { color: var(--red-500); }
+.stat-label {
+  font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; margin-top: 0.3rem;
+}
+.stat-label.total-label { color: var(--navy); }
+.stat-label.success-label { color: #16a34a; }
+.stat-label.failed-label { color: #dc2626; }
+
+/* Results table */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.results-table th {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  background: var(--gray-50);
+  color: var(--navy);
+  font-weight: 600;
+  border-bottom: 2px solid var(--gray-200);
+}
+.results-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--gray-100);
+  color: var(--gray-800);
+}
+.results-table tr:hover td { background: var(--gray-50); }
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge-sent { background: var(--green-50); color: #16a34a; border: 1px solid #bbf7d0; }
+.badge-failed { background: var(--red-50); color: #dc2626; border: 1px solid #fecaca; }
+.badge-pending { background: var(--gray-100); color: var(--gray-400); border: 1px solid var(--gray-200); }
+
+.error-text {
+  font-size: 0.8rem;
+  color: var(--red-500);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+{% endblock %}
+
+{% block content %}
+<div class="page-container">
+
+  <!-- Progress section -->
+  <div class="section">
+    <div class="section-title">{{ config.program_title }}</div>
+
+    <div class="status-indicator">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-label">Starting...</span>
+    </div>
+
+    <div class="progress-container" id="progress-container">
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
+      </div>
+      <div class="progress-text" id="progress-text">0 of {{ job.total_students }} certificates</div>
+      <div class="progress-subtext" id="progress-subtext">Preparing to send...</div>
+    </div>
+
+    <!-- Summary banner (hidden until complete) -->
+    <div class="summary-banner" id="summary-banner" style="display:none;">
+      <div class="summary-stat total">
+        <div class="stat-number total-num" id="stat-total">{{ job.total_students }}</div>
+        <div class="stat-label total-label">Total</div>
+      </div>
+      <div class="summary-stat success">
+        <div class="stat-number success-num" id="stat-sent">0</div>
+        <div class="stat-label success-label">Sent</div>
+      </div>
+      <div class="summary-stat failed" id="stat-failed-card">
+        <div class="stat-number failed-num" id="stat-failed">0</div>
+        <div class="stat-label failed-label">Failed</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results table -->
+  <div class="section">
+    <div class="section-title">Student Details</div>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Status</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody id="results-body">
+        {% for s in students %}
+        <tr id="row-{{ loop.index0 }}">
+          <td>{{ loop.index }}</td>
+          <td>{{ s.name }}</td>
+          <td>{{ s.email }}</td>
+          <td><span class="badge badge-pending" id="badge-{{ loop.index0 }}">Pending</span></td>
+          <td id="error-{{ loop.index0 }}"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Action bar -->
+  <div class="section" id="action-section" style="display:none;">
+    <div class="action-bar">
+      <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">← New Batch</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const jobId = {{ job.id }};
+  const total = {{ job.total_students }};
+  let polling = true;
+
+  async function pollStatus() {
+    if (!polling) return;
+
+    try {
+      const res = await fetch(`/jobs/${jobId}/status`);
+      const data = await res.json();
+
+      // Update progress
+      const pct = total > 0 ? Math.round((data.processed / total) * 100) : 0;
+      document.getElementById('progress-fill').style.width = pct + '%';
+      document.getElementById('progress-text').textContent =
+        `${data.processed} of ${total} certificates`;
+
+      // Update status indicator
+      const dot = document.getElementById('status-dot');
+      const label = document.getElementById('status-label');
+      dot.className = 'status-dot ' + data.status;
+
+      if (data.status === 'running') {
+        label.textContent = 'Sending certificates...';
+        document.getElementById('progress-subtext').textContent =
+          `${pct}% complete`;
+      } else if (data.status === 'queued') {
+        label.textContent = 'Queued — starting soon...';
+      }
+
+      // Update per-student results
+      data.results.forEach((r, i) => {
+        const badge = document.getElementById(`badge-${i}`);
+        const errEl = document.getElementById(`error-${i}`);
+        if (!badge) return;
+
+        if (r.status === 'sent') {
+          badge.className = 'badge badge-sent';
+          badge.textContent = 'Sent';
+        } else if (r.status === 'failed') {
+          badge.className = 'badge badge-failed';
+          badge.textContent = 'Failed';
+          if (r.error && errEl) {
+            errEl.innerHTML = `<span class="error-text" title="${r.error}">${r.error}</span>`;
+          }
+        }
+      });
+
+      // Check if complete
+      if (data.status === 'complete' || data.status === 'failed') {
+        polling = false;
+
+        // Hide progress bar, show summary
+        document.getElementById('progress-container').style.display = 'none';
+        document.getElementById('summary-banner').style.display = 'flex';
+        document.getElementById('action-section').style.display = 'block';
+
+        if (data.status === 'complete') {
+          label.textContent = 'Complete';
+          document.getElementById('progress-subtext').textContent = '';
+        } else {
+          label.textContent = 'Failed — ' + (data.error || 'unknown error');
+        }
+
+        // Count results
+        const sent = data.results.filter(r => r.status === 'sent').length;
+        const failed = data.results.filter(r => r.status === 'failed').length;
+        document.getElementById('stat-sent').textContent = sent;
+        document.getElementById('stat-failed').textContent = failed;
+        if (failed === 0) {
+          document.getElementById('stat-failed-card').style.opacity = '0.5';
+        }
+
+        return; // Stop polling
+      }
+
+    } catch (e) {
+      console.error('Poll error:', e);
+    }
+
+    // Poll again in 2 seconds
+    setTimeout(pollStatus, 2000);
+  }
+
+  // Start polling
+  pollStatus();
+</script>
+{% endblock %}
