@@ -270,9 +270,9 @@
       <label class="form-label" for="email_body">Email Body</label>
       <textarea class="form-textarea" id="email_body" name="email_body"
                 style="min-height: 140px;"
-                placeholder="Dear $first_name, ...">{{ active_config.email_body if active_config else '' }}</textarea>
+                placeholder="Dear [first name], ...">{{ active_config.email_body if active_config else '' }}</textarea>
       <small style="color: var(--gray-500); font-size: 0.8rem;">
-        Use <code>$first_name</code> to insert the student's first name. Leave blank to use the default template.
+        Use <code>[first name]</code> to insert the student's first name. Leave blank to use the default template.
       </small>
     </div>
   </div>
