@@ -58,14 +58,15 @@ def process_job(app, job_id: int) -> None:
             return
 
         # Build email template
-        email_subject = config.get("email_subject",
-            f"Your {config.get('program_title', 'Program')} Certificate")
-        email_body_template = config.get("email_body",
+        email_subject = config.get("email_subject") or \
+            f"Your {config.get('program_title', 'Program')} Certificate"
+        email_body_template = config.get("email_body") or (
             "Dear $first_name,\n\n"
             f"Congratulations on your successful completion of the "
             f"{config.get('program_title', 'program')}! "
             "Your certificate is attached to this email.\n\n"
-            "- The ThinkNeuro Team")
+            "- The ThinkNeuro Team"
+        )
 
         output_dir = ROOT / "output" / f"job_{job_id}"
         output_dir.mkdir(parents=True, exist_ok=True)

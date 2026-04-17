@@ -257,6 +257,26 @@
     </form>
   </div>
 
+  <!-- Email Template -->
+  <div class="section">
+    <div class="section-title">Email Template</div>
+    <div class="form-group">
+      <label class="form-label" for="email_subject">Email Subject</label>
+      <input class="form-input" type="text" id="email_subject" name="email_subject"
+             value="{{ active_config.email_subject if active_config else '' }}"
+             placeholder="e.g. Your Bibliometrics Research Internship Certificate">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="email_body">Email Body</label>
+      <textarea class="form-textarea" id="email_body" name="email_body"
+                style="min-height: 140px;"
+                placeholder="Dear $first_name, ...">{{ active_config.email_body if active_config else '' }}</textarea>
+      <small style="color: var(--gray-500); font-size: 0.8rem;">
+        Use <code>$first_name</code> to insert the student's first name. Leave blank to use the default template.
+      </small>
+    </div>
+  </div>
+
   <!-- Signatories -->
   <div class="section">
     <div class="section-title">Signatories</div>
@@ -401,6 +421,8 @@
       hours: document.getElementById('hours').value,
       program_description: document.getElementById('program_description').value,
       footer: document.getElementById('footer').value,
+      email_subject: document.getElementById('email_subject').value,
+      email_body: document.getElementById('email_body').value,
       signatories: sigs,
     };
   }
@@ -411,6 +433,8 @@
     document.getElementById('hours').value = cfg.hours || '';
     document.getElementById('program_description').value = cfg.program_description || '';
     document.getElementById('footer').value = cfg.footer || '';
+    document.getElementById('email_subject').value = cfg.email_subject || '';
+    document.getElementById('email_body').value = cfg.email_body || '';
     const container = document.getElementById('signatories-container');
     container.innerHTML = '';
     sigCount = 0;
