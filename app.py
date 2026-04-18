@@ -448,6 +448,78 @@ def create_app() -> Flask:
 
         return jsonify({"redirect": url_for("job_progress", job_id=job.id)})
 
+    # --- Resend only missing students from a prior job ---
+
+    @app.route("/jobs/<int:job_id>/resend-missing", methods=["POST"])
+    @login_required
+    def resend_missing(job_id):
+        """Create a new job that re-sends only students who did NOT receive
+        the certificate in a prior (typically failed) job. "Missing" =
+        anyone from the original batch without a 'sent' SendHistory row,
+        so this covers both explicitly failed sends and students who were
+        never reached because the worker died mid-batch.
+
+        Safe to call repeatedly: if the original batch fully succeeded,
+        the set of missing students is empty and we return 400.
+        """
+        from datetime import datetime, timedelta, timezone
+        from models import Job, SendHistory
+        from jobs import start_job
+
+        job = db.session.get(Job, job_id)
+        if job is None:
+            return jsonify({"error": "Job not found"}), 404
+        if job.created_by != current_user.id:
+            return jsonify({"error": "Not your job"}), 403
+
+        original_students = json.loads(job.students_json)
+        sent_emails = {
+            h.student_email for h in
+            SendHistory.query.filter_by(job_id=job.id, status="sent").all()
+        }
+        missing = [s for s in original_students
+                   if s.get("email") not in sent_emails]
+
+        if not missing:
+            return jsonify({
+                "error": "No students to re-send — every student in this "
+                         "batch already has a successful send on record.",
+            }), 400
+
+        # Same duplicate-send guard as /send-certificates. Applies here too:
+        # if a resend is already running we shouldn't kick off another one.
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        in_flight = (
+            Job.query
+            .filter(Job.created_by == current_user.id)
+            .filter(Job.status.in_(("queued", "running")))
+            .filter(Job.created_at >= recent_cutoff)
+            .first()
+        )
+        if in_flight is not None:
+            return jsonify({
+                "error": "A send is already in progress. Please wait for "
+                         "it to complete.",
+                "job_id": in_flight.id,
+            }), 400
+
+        new_job = Job(
+            status="queued",
+            total_students=len(missing),
+            config_json=job.config_json,  # reuse the original snapshot
+            students_json=json.dumps(missing),
+            created_by=current_user.id,
+        )
+        db.session.add(new_job)
+        db.session.commit()
+
+        start_job(app, new_job.id)
+
+        return jsonify({
+            "redirect": url_for("job_progress", job_id=new_job.id),
+            "missing_count": len(missing),
+        })
+
     # --- Job progress page ---
 
     @app.route("/jobs/<int:job_id>")

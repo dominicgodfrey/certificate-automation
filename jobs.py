@@ -5,6 +5,7 @@ Updates job progress in the database so the frontend can poll for status.
 """
 import asyncio
 import json
+import shutil
 import time
 import threading
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from renderer import CertificateRenderer
 from emailer import EmailSender, EmailError
 
 ROOT = Path(__file__).parent
+KEEP_RECENT_JOB_DIRS = 5
 
 
 def _build_render_data(student: dict, config: dict) -> dict:
@@ -28,6 +30,32 @@ def _build_render_data(student: dict, config: dict) -> dict:
         "footer": config.get("footer", ""),
         "signatories": config.get("signatories", []),
     }
+
+
+def _cleanup_old_job_dirs(keep: int = KEEP_RECENT_JOB_DIRS) -> None:
+    """Delete all but the N most-recent `output/job_*` directories.
+
+    Each completed job leaves behind ~N student PDFs on disk. Over many
+    batches on a persistent instance this fills the disk. Keep recent
+    dirs around so the user can still use /download-all or debug a
+    recent send, and drop the rest.
+    """
+    output_root = ROOT / "output"
+    if not output_root.exists():
+        return
+    try:
+        job_dirs = [
+            d for d in output_root.iterdir()
+            if d.is_dir() and d.name.startswith("job_")
+        ]
+    except OSError:
+        return
+    job_dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+    for old_dir in job_dirs[keep:]:
+        try:
+            shutil.rmtree(old_dir, ignore_errors=True)
+        except Exception as e:
+            print(f"Warning: failed to clean up {old_dir}: {e}")
 
 
 def process_job(app, job_id: int) -> None:
@@ -133,6 +161,9 @@ def process_job(app, job_id: int) -> None:
 
         job.completed_at = datetime.now(timezone.utc)
         db.session.commit()
+
+        # Housekeeping: keep only the N most-recent job output directories.
+        _cleanup_old_job_dirs()
 
 
 def start_job(app, job_id: int) -> None:

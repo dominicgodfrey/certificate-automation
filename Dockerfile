@@ -45,10 +45,12 @@ EXPOSE 10000
 # - 1 worker: each send job launches Chromium in a background thread;
 #   with 2 workers, two simultaneous sends can OOM the instance. A
 #   single staff user polling progress is fine with 1 worker.
-# - 120s timeout (certificate rendering can take time)
+# - 600s timeout: /download-all renders every PDF synchronously in the
+#   HTTP request and can easily exceed the old 120s ceiling at 400+
+#   students. 600s gives ~1.5s per PDF at 400 students, with headroom.
 # - bind to 0.0.0.0:10000 (Render's expected port)
 CMD ["gunicorn", "wsgi:app", \
      "--bind", "0.0.0.0:10000", \
      "--workers", "1", \
-     "--timeout", "120", \
+     "--timeout", "600", \
      "--access-logfile", "-"]

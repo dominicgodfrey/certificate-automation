@@ -222,14 +222,18 @@
       <strong>This send did not complete.</strong>
       <div style="margin-top: 0.4rem; font-size: 0.9rem; line-height: 1.5;">
         Students marked <strong>Sent</strong> above already received their
-        certificate. Anyone else did not — the batch was interrupted (for
-        example, a server restart). To avoid duplicate emails, build a new
-        batch on the dashboard containing only the students who still need
-        their certificate, then send again.
+        certificate. Anyone else did not — the batch was interrupted.
+        Click <strong>Re-send missing only</strong> to automatically
+        re-run the batch for just the students who still need their
+        certificate (no duplicates).
       </div>
     </div>
     <div class="action-bar">
       <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">← New Batch</a>
+      <button class="btn btn-primary" id="resend-missing-btn"
+              style="display:none;" onclick="resendMissing()">
+        Re-send missing only
+      </button>
     </div>
   </div>
 
@@ -299,6 +303,8 @@
         } else {
           label.textContent = 'Failed — ' + (data.error || 'unknown error');
           document.getElementById('failed-notice').style.display = 'block';
+          document.getElementById('resend-missing-btn').style.display =
+            'inline-block';
         }
 
         // Count results
@@ -319,6 +325,27 @@
 
     // Poll again in 2 seconds
     setTimeout(pollStatus, 2000);
+  }
+
+  async function resendMissing() {
+    const btn = document.getElementById('resend-missing-btn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
+    try {
+      const res = await fetch(`/jobs/${jobId}/resend-missing`,
+        { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.redirect) {
+        window.location.href = data.redirect;
+        return;
+      }
+      alert(data.error || 'Could not start re-send.');
+    } catch (e) {
+      alert('Network error: ' + e);
+    }
+    btn.disabled = false;
+    btn.textContent = originalText;
   }
 
   // Start polling
