@@ -47,6 +47,31 @@ class EmailSender:
         self._send_count = 0
 
     @classmethod
+    def smoke_test(cls) -> tuple[bool, str]:
+        """Try to log in to SMTP without sending anything.
+
+        Used at app startup to surface bad creds early — e.g. an App
+        Password that was silently revoked by a Workspace policy change.
+        Returns (ok, message); never raises.
+        """
+        try:
+            sender = cls.from_env()
+        except EmailError as e:
+            return False, f"SMTP config invalid: {e}"
+        if sender.dry_run:
+            return True, "SEND_EMAILS=false; SMTP login not tested"
+        try:
+            sender._open()
+            sender._close()
+            return True, f"SMTP login OK ({sender.host}:{sender.port} as {sender.user})"
+        except Exception as e:
+            return False, (
+                f"SMTP LOGIN FAILED for {sender.user} at "
+                f"{sender.host}:{sender.port} — {e}. "
+                "Rotate SMTP_PASSWORD (likely a revoked App Password)."
+            )
+
+    @classmethod
     def from_env(cls) -> "EmailSender":
         required = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD",
                     "SENDER_NAME", "SENDER_EMAIL"]

@@ -194,6 +194,32 @@
 {% block content %}
 <div class="page-container">
 
+  {% if unfinished_jobs %}
+  <div class="section" style="background: #fff7ed; border: 1px solid #fed7aa;">
+    <div style="font-weight: 700; color: #9a3412; margin-bottom: 0.5rem;">
+      Unfinished send{{ 's' if unfinished_jobs|length > 1 else '' }} detected
+    </div>
+    <div style="font-size: 0.9rem; color: #7c2d12; margin-bottom: 0.75rem;">
+      One or more recent batches stopped before every student received
+      their certificate. You can finish them safely without duplicating
+      emails to students who already got theirs.
+    </div>
+    {% for u in unfinished_jobs %}
+    <div style="display: flex; justify-content: space-between;
+                align-items: center; padding: 0.5rem 0;
+                border-top: 1px solid #fed7aa;">
+      <div style="font-size: 0.9rem; color: #7c2d12;">
+        Batch #{{ u.id }} — {{ u.sent }} of {{ u.total }} sent,
+        <strong>{{ u.missing }} missing</strong>
+      </div>
+      <a href="{{ url_for('job_progress', job_id=u.id) }}"
+         class="btn btn-secondary" style="padding: 0.35rem 0.9rem;
+         font-size: 0.85rem;">Open</a>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <!-- Preset Management -->
   <div class="section">
     <div class="section-title">Template Preset</div>

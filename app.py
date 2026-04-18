@@ -78,6 +78,17 @@ def create_app() -> Flask:
             db.session.commit()
             print(f"Marked {len(stuck)} stuck job(s) as failed on startup.")
 
+        # Loud-but-non-fatal SMTP credential smoke test. Workspace policy
+        # changes silently revoke App Passwords; we want that to show up
+        # in deploy logs *before* an operator clicks Send and watches
+        # 400 students fail in a row.
+        try:
+            from emailer import EmailSender
+            ok, msg = EmailSender.smoke_test()
+            print(("SMTP OK: " if ok else "SMTP WARNING: ") + msg)
+        except Exception as e:
+            print(f"SMTP smoke test crashed (non-fatal): {e}")
+
     # --- Login manager ---
     login_manager = LoginManager()
     login_manager.init_app(app)
@@ -149,6 +160,7 @@ def create_app() -> Flask:
     @app.route("/dashboard", methods=["GET"])
     @login_required
     def dashboard():
+        from models import Job, SendHistory
         presets = Preset.query.order_by(Preset.name).all()
         # Load last-used preset from session, or default to empty
         active_preset_id = session.get("active_preset_id")
@@ -157,10 +169,42 @@ def create_app() -> Flask:
             preset = db.session.get(Preset, active_preset_id)
             if preset:
                 active_config = json.loads(preset.config_json)
+
+        # Surface any of THIS user's failed jobs that still have students
+        # missing a successful send. Lets the operator finish an
+        # interrupted batch from the dashboard instead of having to
+        # remember the URL of the failed job page.
+        unfinished = []
+        recent_failed = (
+            Job.query
+            .filter(Job.created_by == current_user.id)
+            .filter(Job.status == "failed")
+            .order_by(Job.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        for j in recent_failed:
+            try:
+                total = j.total_students or 0
+                sent = SendHistory.query.filter_by(
+                    job_id=j.id, status="sent").count()
+                missing = total - sent
+                if missing > 0:
+                    unfinished.append({
+                        "id": j.id,
+                        "total": total,
+                        "sent": sent,
+                        "missing": missing,
+                        "created_at": j.created_at,
+                    })
+            except Exception:
+                continue
+
         return render_template("dashboard.html",
                                presets=presets,
                                active_preset_id=active_preset_id,
-                               active_config=active_config)
+                               active_config=active_config,
+                               unfinished_jobs=unfinished)
 
     # --- Preset API routes ---
 
