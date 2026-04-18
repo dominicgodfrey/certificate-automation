@@ -45,6 +45,23 @@ class SendHistory(db.Model):
         return f"<SendHistory {self.student_name} - {self.status}>"
 
 
+class PreviewDraft(db.Model):
+    """Server-side storage of a preview's config + student list.
+
+    Replaces the old session-cookie approach, which silently failed for
+    batches of ~500+ students (4KB signed-cookie ceiling).
+    """
+    __tablename__ = "preview_drafts"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    config_json = db.Column(db.Text, nullable=False)
+    students_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def __repr__(self):
+        return f"<PreviewDraft {self.id} user={self.user_id}>"
+
+
 class Job(db.Model):
     __tablename__ = "jobs"
     id = db.Column(db.Integer, primary_key=True)

@@ -42,11 +42,13 @@ RUN mkdir -p data output
 EXPOSE 10000
 
 # Run with Gunicorn
-# - 2 workers (Render free tier has limited memory)
+# - 1 worker: each send job launches Chromium in a background thread;
+#   with 2 workers, two simultaneous sends can OOM the instance. A
+#   single staff user polling progress is fine with 1 worker.
 # - 120s timeout (certificate rendering can take time)
 # - bind to 0.0.0.0:10000 (Render's expected port)
 CMD ["gunicorn", "wsgi:app", \
      "--bind", "0.0.0.0:10000", \
-     "--workers", "2", \
+     "--workers", "1", \
      "--timeout", "120", \
      "--access-logfile", "-"]

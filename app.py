@@ -9,7 +9,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, session)
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 
-from models import db, User, Preset
+from models import db, User, Preset, PreviewDraft
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
@@ -49,6 +49,23 @@ def create_app() -> Flask:
                 db.session.commit()
                 print(f"Auto-seeded admin user: {admin_user}")
 
+        # Stuck-job sweep: if the worker was killed (Render restart, deploy,
+        # OOM) while a job was running, it is permanently stuck in 'running'
+        # with no thread to finish it. Mark any such jobs as failed so the
+        # user sees a clear state and can re-send.
+        from datetime import datetime, timezone
+        from models import Job
+        stuck = Job.query.filter_by(status="running").all()
+        if stuck:
+            now = datetime.now(timezone.utc)
+            for j in stuck:
+                j.status = "failed"
+                j.error_message = ("Server restarted while job was running. "
+                                   "Please re-send the batch.")
+                j.completed_at = now
+            db.session.commit()
+            print(f"Marked {len(stuck)} stuck job(s) as failed on startup.")
+
     # --- Login manager ---
     login_manager = LoginManager()
     login_manager.init_app(app)
@@ -58,6 +75,20 @@ def create_app() -> Flask:
     @login_manager.user_loader
     def load_user(user_id):
         return db.session.get(User, int(user_id))
+
+    # --- Helpers ---
+
+    def _get_preview_draft():
+        """Return the current user's active PreviewDraft, or None."""
+        draft_id = session.get("preview_draft_id")
+        if not draft_id:
+            return None
+        draft = db.session.get(PreviewDraft, draft_id)
+        # Guard against a user reusing a session after the draft was deleted
+        # or the cookie pointing at another user's draft.
+        if draft is None or draft.user_id != current_user.id:
+            return None
+        return draft
 
     # --- Routes ---
 
@@ -193,7 +224,12 @@ def create_app() -> Flask:
     @app.route("/generate-preview", methods=["POST"])
     @login_required
     def generate_preview():
-        """Store certificate config + student list in session, redirect to preview."""
+        """Persist certificate config + student list as a PreviewDraft.
+
+        Stored server-side (not in the session cookie) so that large
+        batches — up to 1000+ students — don't exceed the ~4KB signed
+        cookie limit and silently fail.
+        """
         data = request.get_json()
         config = data.get("config")
         students = data.get("students")  # list of {name, email}
@@ -213,8 +249,23 @@ def create_app() -> Flask:
         if issues:
             return jsonify({"error": "Student data issues:\n" + "\n".join(issues)}), 400
 
-        session["preview_config"] = config
-        session["preview_students"] = students
+        # Drop any prior drafts for this user so the table doesn't accumulate
+        # abandoned previews.
+        PreviewDraft.query.filter_by(user_id=current_user.id).delete()
+
+        draft = PreviewDraft(
+            user_id=current_user.id,
+            config_json=json.dumps(config),
+            students_json=json.dumps(students),
+        )
+        db.session.add(draft)
+        db.session.commit()
+
+        session["preview_draft_id"] = draft.id
+        # Clear any stale cookie-based preview data from before this change.
+        session.pop("preview_config", None)
+        session.pop("preview_students", None)
+
         return jsonify({"redirect": url_for("preview")})
 
     # --- Preview page ---
@@ -222,11 +273,12 @@ def create_app() -> Flask:
     @app.route("/preview")
     @login_required
     def preview():
-        config = session.get("preview_config")
-        students = session.get("preview_students")
-        if not config or not students:
+        draft = _get_preview_draft()
+        if draft is None:
             flash("No data to preview. Please fill out the form first.", "error")
             return redirect(url_for("dashboard"))
+        config = json.loads(draft.config_json)
+        students = json.loads(draft.students_json)
         return render_template("preview.html", config=config, students=students)
 
     # --- Certificate rendering for preview ---
@@ -238,10 +290,11 @@ def create_app() -> Flask:
         import asyncio
         from renderer import CertificateRenderer
 
-        config = session.get("preview_config")
-        students = session.get("preview_students")
-        if not config or not students:
+        draft = _get_preview_draft()
+        if draft is None:
             return "No preview data", 400
+        config = json.loads(draft.config_json)
+        students = json.loads(draft.students_json)
         if student_index < 0 or student_index >= len(students):
             return "Invalid student index", 400
 
@@ -279,10 +332,11 @@ def create_app() -> Flask:
         from jinja2 import Environment, FileSystemLoader
         from renderer import CertificateRenderer, TEMPLATES
 
-        config = session.get("preview_config")
-        students = session.get("preview_students")
-        if not config or not students:
+        draft = _get_preview_draft()
+        if draft is None:
             return "No preview data", 400
+        config = json.loads(draft.config_json)
+        students = json.loads(draft.students_json)
         if student_index < 0 or student_index >= len(students):
             return "Invalid student index", 400
 
@@ -351,13 +405,34 @@ def create_app() -> Flask:
     @login_required
     def send_certificates():
         """Create a background job to render and email all certificates."""
+        from datetime import datetime, timedelta, timezone
         from models import Job
         from jobs import start_job
 
-        config = session.get("preview_config")
-        students = session.get("preview_students")
-        if not config or not students:
+        draft = _get_preview_draft()
+        if draft is None:
             return jsonify({"error": "No data to send"}), 400
+        config = json.loads(draft.config_json)
+        students = json.loads(draft.students_json)
+
+        # Duplicate-send guard: if the user already has a job that's queued
+        # or running and was created in the last 10 minutes, refuse to start
+        # a second one. Protects against double-clicks and accidental
+        # refreshes that would otherwise email every student twice.
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        in_flight = (
+            Job.query
+            .filter(Job.created_by == current_user.id)
+            .filter(Job.status.in_(("queued", "running")))
+            .filter(Job.created_at >= recent_cutoff)
+            .first()
+        )
+        if in_flight is not None:
+            return jsonify({
+                "error": "A send is already in progress. Please wait for "
+                         "it to complete.",
+                "job_id": in_flight.id,
+            }), 400
 
         job = Job(
             status="queued",
@@ -411,6 +486,7 @@ def create_app() -> Flask:
             "status": job.status,
             "total": job.total_students,
             "processed": job.processed_count,
+            "error": job.error_message,
             "results": results,
         })
 
@@ -424,10 +500,11 @@ def create_app() -> Flask:
         import zipfile
         from renderer import CertificateRenderer
 
-        config = session.get("preview_config")
-        students = session.get("preview_students")
-        if not config or not students:
+        draft = _get_preview_draft()
+        if draft is None:
             return jsonify({"error": "No data"}), 400
+        config = json.loads(draft.config_json)
+        students = json.loads(draft.students_json)
 
         output_dir = ROOT / "output" / "download"
         output_dir.mkdir(parents=True, exist_ok=True)

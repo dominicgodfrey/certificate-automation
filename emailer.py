@@ -2,12 +2,23 @@
 
 Isolated so you can swap SMTP for SendGrid / AWS SES / etc. without
 touching the rest of the pipeline.
+
+The sender holds a persistent SMTP connection across calls when used
+as a context manager; this avoids re-authenticating on every message
+and stays well under typical SMTP login-rate-limit thresholds during
+bulk sends. It reconnects automatically on dropped connections and
+recycles the connection every RECONNECT_EVERY messages as a safety
+valve against server-side idle timeouts.
 """
 import os
 import smtplib
 import ssl
+import time
 from email.message import EmailMessage
 from pathlib import Path
+
+
+RECONNECT_EVERY = 50  # proactively recycle the SMTP connection every N sends
 
 
 class EmailError(Exception):
@@ -32,6 +43,8 @@ class EmailSender:
         self.sender_name = sender_name
         self.sender_email = sender_email
         self.dry_run = dry_run
+        self._server: smtplib.SMTP | None = None
+        self._send_count = 0
 
     @classmethod
     def from_env(cls) -> "EmailSender":
@@ -49,6 +62,35 @@ class EmailSender:
             sender_email=os.environ["SENDER_EMAIL"],
             dry_run=os.environ.get("SEND_EMAILS", "false").lower() != "true",
         )
+
+    # --- connection management -------------------------------------------------
+
+    def _open(self) -> None:
+        ctx = ssl.create_default_context()
+        server = smtplib.SMTP(self.host, self.port, timeout=30)
+        server.starttls(context=ctx)
+        server.login(self.user, self.password)
+        self._server = server
+        self._send_count = 0
+
+    def _close(self) -> None:
+        if self._server is not None:
+            try:
+                self._server.quit()
+            except Exception:
+                pass
+            self._server = None
+
+    def __enter__(self) -> "EmailSender":
+        if not self.dry_run:
+            self._open()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        self._close()
+        return False
+
+    # --- send ------------------------------------------------------------------
 
     def send(self, to: str, subject: str, body: str, attachment_path: Path) -> None:
         msg = EmailMessage()
@@ -74,8 +116,41 @@ class EmailSender:
                   f"attachment={attachment_path.name} ({len(data)} bytes)")
             return
 
-        ctx = ssl.create_default_context()
-        with smtplib.SMTP(self.host, self.port) as server:
-            server.starttls(context=ctx)
-            server.login(self.user, self.password)
-            server.send_message(msg)
+        # Proactively recycle the connection every N messages so we don't
+        # get silently dropped by a server-side idle timeout.
+        if self._send_count >= RECONNECT_EVERY:
+            self._close()
+
+        if self._server is None:
+            self._open()
+
+        # Try once; on a dropped connection or transient SMTP error, reconnect
+        # and retry exactly once before giving up.
+        try:
+            self._server.send_message(msg)
+        except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError,
+                ConnectionError, BrokenPipeError, OSError) as e:
+            self._close()
+            time.sleep(2)
+            try:
+                self._open()
+                self._server.send_message(msg)
+            except Exception as retry_err:
+                raise EmailError(
+                    f"SMTP send failed after reconnect: {retry_err} "
+                    f"(original: {e})"
+                ) from retry_err
+        except smtplib.SMTPException as e:
+            # Transient SMTP-level error (e.g. 4xx). Reconnect and retry once.
+            self._close()
+            time.sleep(2)
+            try:
+                self._open()
+                self._server.send_message(msg)
+            except Exception as retry_err:
+                raise EmailError(
+                    f"SMTP send failed after retry: {retry_err} "
+                    f"(original: {e})"
+                ) from retry_err
+
+        self._send_count += 1
