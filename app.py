@@ -33,6 +33,18 @@ def create_app() -> Flask:
     app.config["SQLALCHEMY_DATABASE_URI"] = database_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+    # Log the DB host (no password) at startup so it's obvious on Render
+    # which database is wired up — Supabase, Render PG, or local SQLite —
+    # and easy to spot if the env var ever points somewhere unexpected.
+    try:
+        from urllib.parse import urlparse
+        _u = urlparse(database_url)
+        _backend = _u.scheme.split("+")[0]
+        _host = _u.hostname or "(local)"
+        print(f"DB backend={_backend} host={_host}")
+    except Exception:
+        pass
+
     db.init_app(app)
     with app.app_context():
         db.create_all()
@@ -91,6 +103,17 @@ def create_app() -> Flask:
         return draft
 
     # --- Routes ---
+
+    @app.route("/healthz", methods=["GET"])
+    def healthz():
+        """Liveness probe + keep-alive target.
+
+        The background job thread pings this from within the same instance
+        during long batches so the host platform sees continuous HTTP
+        traffic and doesn't spin the web instance down mid-send. No auth,
+        no DB hit — must stay cheap.
+        """
+        return "ok", 200
 
     @app.route("/", methods=["GET"])
     def index():

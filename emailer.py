@@ -97,6 +97,15 @@ class EmailSender:
         msg["Subject"] = subject
         msg["From"] = f"{self.sender_name} <{self.sender_email}>"
         msg["To"] = to
+        # Reply-To so a recipient hitting reply lands on a monitored inbox,
+        # not the SMTP user (which may be different on a relayed setup).
+        msg["Reply-To"] = self.sender_email
+        # List-Unsubscribe is treated as a strong "this is a legitimate
+        # bulk sender" signal by Gmail/Outlook/Yahoo. Mailto form works
+        # without needing a public unsubscribe URL.
+        msg["List-Unsubscribe"] = (
+            f"<mailto:{self.sender_email}?subject=Unsubscribe>"
+        )
         msg.set_content(body, charset="utf-8")
 
         attachment_path = Path(attachment_path)
