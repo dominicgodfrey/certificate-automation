@@ -1,24 +1,29 @@
-"""SMTP email sender with PDF attachment support.
+"""SendGrid-based email sender with PDF attachment support.
 
-Isolated so you can swap SMTP for SendGrid / AWS SES / etc. without
-touching the rest of the pipeline.
+Uses SendGrid's HTTP API (not SMTP) because:
+- Purpose-built for transactional bulk sending; Gmail/Outlook recognize
+  SendGrid IPs as legitimate senders.
+- DKIM is handled at the provider level — already live for
+  thinkneuro.org via `s1._domainkey` CNAME.
+- No SMTP App Password dependency. API keys are app-scoped and do not
+  get revoked by Workspace policy changes.
+- No auth throttling / reconnect dance needed. Each send is a single
+  stateless HTTPS POST.
 
-The sender holds a persistent SMTP connection across calls when used
-as a context manager; this avoids re-authenticating on every message
-and stays well under typical SMTP login-rate-limit thresholds during
-bulk sends. It reconnects automatically on dropped connections and
-recycles the connection every RECONNECT_EVERY messages as a safety
-valve against server-side idle timeouts.
+Interface mirrors the old SMTP EmailSender so jobs.py works unchanged:
+  with EmailSender.from_env() as sender:
+      sender.send(to, subject, body, attachment_path)
+The context manager is a no-op (kept for backward compatibility).
 """
+import base64
 import os
-import smtplib
-import ssl
-import time
-from email.message import EmailMessage
 from pathlib import Path
 
-
-RECONNECT_EVERY = 50  # proactively recycle the SMTP connection every N sends
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import (
+    Mail, Attachment, FileContent, FileName, FileType, Disposition,
+    ReplyTo, Header,
+)
 
 
 class EmailError(Exception):
@@ -28,163 +33,123 @@ class EmailError(Exception):
 class EmailSender:
     def __init__(
         self,
-        host: str,
-        port: int,
-        user: str,
-        password: str,
+        api_key: str,
         sender_name: str,
         sender_email: str,
         dry_run: bool = False,
     ):
-        self.host = host
-        self.port = port
-        self.user = user
-        self.password = password
+        self.api_key = api_key
         self.sender_name = sender_name
         self.sender_email = sender_email
         self.dry_run = dry_run
-        self._server: smtplib.SMTP | None = None
-        self._send_count = 0
-
-    @classmethod
-    def smoke_test(cls) -> tuple[bool, str]:
-        """Try to log in to SMTP without sending anything.
-
-        Used at app startup to surface bad creds early — e.g. an App
-        Password that was silently revoked by a Workspace policy change.
-        Returns (ok, message); never raises.
-        """
-        try:
-            sender = cls.from_env()
-        except EmailError as e:
-            return False, f"SMTP config invalid: {e}"
-        if sender.dry_run:
-            return True, "SEND_EMAILS=false; SMTP login not tested"
-        try:
-            sender._open()
-            sender._close()
-            return True, f"SMTP login OK ({sender.host}:{sender.port} as {sender.user})"
-        except Exception as e:
-            return False, (
-                f"SMTP LOGIN FAILED for {sender.user} at "
-                f"{sender.host}:{sender.port} — {e}. "
-                "Rotate SMTP_PASSWORD (likely a revoked App Password)."
-            )
 
     @classmethod
     def from_env(cls) -> "EmailSender":
-        required = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD",
-                    "SENDER_NAME", "SENDER_EMAIL"]
+        required = ["SENDGRID_API_KEY", "SENDER_NAME", "SENDER_EMAIL"]
         missing = [k for k in required if not os.environ.get(k)]
         if missing:
-            raise EmailError(f"Missing env vars: {missing}. Copy .env.example to .env.")
+            raise EmailError(
+                f"Missing env vars: {missing}. Copy .env.example to .env."
+            )
         return cls(
-            host=os.environ["SMTP_HOST"],
-            port=int(os.environ["SMTP_PORT"]),
-            user=os.environ["SMTP_USER"],
-            password=os.environ["SMTP_PASSWORD"],
+            api_key=os.environ["SENDGRID_API_KEY"],
             sender_name=os.environ["SENDER_NAME"],
             sender_email=os.environ["SENDER_EMAIL"],
             dry_run=os.environ.get("SEND_EMAILS", "false").lower() != "true",
         )
 
-    # --- connection management -------------------------------------------------
+    @classmethod
+    def smoke_test(cls) -> tuple[bool, str]:
+        """Validate SENDGRID_API_KEY without sending mail.
 
-    def _open(self) -> None:
-        ctx = ssl.create_default_context()
-        server = smtplib.SMTP(self.host, self.port, timeout=30)
-        server.starttls(context=ctx)
-        server.login(self.user, self.password)
-        self._server = server
-        self._send_count = 0
+        Hits GET /v3/user/profile: 200 means the key is valid; anything
+        else means it's revoked, rate-limited, or misconfigured.
+        Never raises — returns (ok, message) so app startup can log and
+        continue.
+        """
+        try:
+            sender = cls.from_env()
+        except EmailError as e:
+            return False, f"SendGrid config invalid: {e}"
 
-    def _close(self) -> None:
-        if self._server is not None:
-            try:
-                self._server.quit()
-            except Exception:
-                pass
-            self._server = None
+        if sender.dry_run:
+            return True, "SEND_EMAILS=false; SendGrid API key not tested"
+
+        try:
+            sg = SendGridAPIClient(sender.api_key)
+            response = sg.client.user.profile.get()
+            if response.status_code == 200:
+                return True, (
+                    f"SendGrid API key valid (sender "
+                    f"{sender.sender_email})"
+                )
+            return False, (
+                f"SendGrid API key check returned "
+                f"{response.status_code}. Rotate SENDGRID_API_KEY."
+            )
+        except Exception as e:
+            return False, (
+                f"SendGrid API key check FAILED — {e}. "
+                "Rotate SENDGRID_API_KEY."
+            )
+
+    # --- context manager (no-op for API-based sends) ---------------------
 
     def __enter__(self) -> "EmailSender":
-        if not self.dry_run:
-            self._open()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-        self._close()
         return False
 
-    # --- send ------------------------------------------------------------------
+    # --- send ------------------------------------------------------------
 
     def send(self, to: str, subject: str, body: str, attachment_path: Path) -> None:
-        msg = EmailMessage()
-        msg["Subject"] = subject
-        msg["From"] = f"{self.sender_name} <{self.sender_email}>"
-        msg["To"] = to
-        # Reply-To so a recipient hitting reply lands on a monitored inbox,
-        # not the SMTP user (which may be different on a relayed setup).
-        msg["Reply-To"] = self.sender_email
-        # List-Unsubscribe is treated as a strong "this is a legitimate
-        # bulk sender" signal by Gmail/Outlook/Yahoo. Mailto form works
-        # without needing a public unsubscribe URL.
-        msg["List-Unsubscribe"] = (
-            f"<mailto:{self.sender_email}?subject=Unsubscribe>"
-        )
-        msg.set_content(body, charset="utf-8")
-
         attachment_path = Path(attachment_path)
         if not attachment_path.exists():
             raise EmailError(f"Attachment not found: {attachment_path}")
         with open(attachment_path, "rb") as f:
             data = f.read()
-        msg.add_attachment(
-            data,
-            maintype="application",
-            subtype="pdf",
-            filename=attachment_path.name,
-        )
 
         if self.dry_run:
             print(f"  [DRY RUN] would send to {to}, subject='{subject}', "
                   f"attachment={attachment_path.name} ({len(data)} bytes)")
             return
 
-        # Proactively recycle the connection every N messages so we don't
-        # get silently dropped by a server-side idle timeout.
-        if self._send_count >= RECONNECT_EVERY:
-            self._close()
+        encoded = base64.b64encode(data).decode()
 
-        if self._server is None:
-            self._open()
+        message = Mail(
+            from_email=(self.sender_email, self.sender_name),
+            to_emails=to,
+            subject=subject,
+            plain_text_content=body,
+        )
+        # Replies should land back on the monitored sender inbox, not on
+        # whatever SendGrid's bounce address decays to.
+        message.reply_to = ReplyTo(self.sender_email)
+        # List-Unsubscribe is a strong "legitimate bulk sender" signal to
+        # Gmail / Outlook / Yahoo. Mailto form doesn't require a public
+        # unsubscribe URL.
+        message.header = Header(
+            "List-Unsubscribe",
+            f"<mailto:{self.sender_email}?subject=Unsubscribe>",
+        )
+        message.attachment = Attachment(
+            FileContent(encoded),
+            FileName(attachment_path.name),
+            FileType("application/pdf"),
+            Disposition("attachment"),
+        )
 
-        # Try once; on a dropped connection or transient SMTP error, reconnect
-        # and retry exactly once before giving up.
         try:
-            self._server.send_message(msg)
-        except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError,
-                ConnectionError, BrokenPipeError, OSError) as e:
-            self._close()
-            time.sleep(2)
-            try:
-                self._open()
-                self._server.send_message(msg)
-            except Exception as retry_err:
-                raise EmailError(
-                    f"SMTP send failed after reconnect: {retry_err} "
-                    f"(original: {e})"
-                ) from retry_err
-        except smtplib.SMTPException as e:
-            # Transient SMTP-level error (e.g. 4xx). Reconnect and retry once.
-            self._close()
-            time.sleep(2)
-            try:
-                self._open()
-                self._server.send_message(msg)
-            except Exception as retry_err:
-                raise EmailError(
-                    f"SMTP send failed after retry: {retry_err} "
-                    f"(original: {e})"
-                ) from retry_err
+            sg = SendGridAPIClient(self.api_key)
+            response = sg.send(message)
+        except Exception as e:
+            raise EmailError(
+                f"SendGrid send failed for {to}: {e}"
+            ) from e
 
-        self._send_count += 1
+        if response.status_code not in (200, 202):
+            raise EmailError(
+                f"SendGrid returned unexpected status "
+                f"{response.status_code} for {to}: {response.body}"
+            )

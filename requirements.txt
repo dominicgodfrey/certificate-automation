@@ -11,6 +11,7 @@ flask>=3.0
 flask-login>=0.6
 flask-sqlalchemy>=3.1
 bcrypt>=4.0
+sendgrid>=6.11
 
 # Production server
 gunicorn>=21.2

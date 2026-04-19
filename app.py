@@ -78,16 +78,15 @@ def create_app() -> Flask:
             db.session.commit()
             print(f"Marked {len(stuck)} stuck job(s) as failed on startup.")
 
-        # Loud-but-non-fatal SMTP credential smoke test. Workspace policy
-        # changes silently revoke App Passwords; we want that to show up
-        # in deploy logs *before* an operator clicks Send and watches
-        # 400 students fail in a row.
+        # Loud-but-non-fatal email-provider credential smoke test. Catches
+        # a revoked / rate-limited SendGrid API key before an operator
+        # clicks Send and watches 400 students fail in a row.
         try:
             from emailer import EmailSender
             ok, msg = EmailSender.smoke_test()
-            print(("SMTP OK: " if ok else "SMTP WARNING: ") + msg)
+            print(("Email OK: " if ok else "Email WARNING: ") + msg)
         except Exception as e:
-            print(f"SMTP smoke test crashed (non-fatal): {e}")
+            print(f"Email smoke test crashed (non-fatal): {e}")
 
     # --- Login manager ---
     login_manager = LoginManager()
