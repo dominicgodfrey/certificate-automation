@@ -29,6 +29,11 @@ KEEP_RECENT_JOB_DIRS = 5
 SEND_DELAY_MIN_SECONDS = 3.0
 SEND_DELAY_MAX_SECONDS = 5.0
 
+# Restart the Playwright browser every N students to prevent Chromium's
+# memory from accumulating over a long batch and triggering an OOM kill
+# on memory-constrained hosts (e.g. Render free tier at 512MB).
+RENDERER_RESTART_EVERY = 100
+
 # Keep-alive: free PaaS tiers (Render free, Fly hobby) spin the web
 # instance down after ~15 min of no incoming HTTP traffic. A background
 # job thread does NOT count as traffic, so a long batch will get its
@@ -151,64 +156,64 @@ def process_job(app, job_id: int) -> None:
         output_dir = ROOT / "output" / f"job_{job_id}"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Process all students. The EmailSender context manager holds a
-        # persistent SMTP connection across the batch and auto-reconnects
-        # on drops / transient errors.
         async def do_process():
-            async with CertificateRenderer() as renderer:
-                with sender:
-                    for i, student in enumerate(students):
-                        status = "pending"
-                        error = None
+            with sender:
+                for chunk_start in range(0, len(students), RENDERER_RESTART_EVERY):
+                    chunk = students[chunk_start:chunk_start + RENDERER_RESTART_EVERY]
+                    async with CertificateRenderer() as renderer:
+                        for j, student in enumerate(chunk):
+                            i = chunk_start + j
+                            status = "pending"
+                            error = None
 
-                        try:
-                            # Render PDF
-                            slug = "".join(c if c.isalnum() else "_"
-                                           for c in student["name"]).strip("_")
-                            pdf_path = output_dir / f"certificate_{slug}.pdf"
-                            await renderer.render(
-                                _build_render_data(student, config), pdf_path)
+                            try:
+                                # Render PDF
+                                slug = "".join(c if c.isalnum() else "_"
+                                               for c in student["name"]).strip("_")
+                                pdf_path = output_dir / f"certificate_{slug}.pdf"
+                                await renderer.render(
+                                    _build_render_data(student, config), pdf_path)
 
-                            # Send email
-                            first_name = student["name"].split()[0]
-                            subject = Template(email_subject_template).safe_substitute(
-                                first_name=first_name)
-                            body = Template(email_body_template).safe_substitute(
-                                first_name=first_name)
-                            sender.send(
-                                to=student["email"],
-                                subject=subject,
-                                body=body,
-                                attachment_path=pdf_path,
+                                # Send email
+                                first_name = student["name"].split()[0]
+                                subject = Template(email_subject_template).safe_substitute(
+                                    first_name=first_name)
+                                body = Template(email_body_template).safe_substitute(
+                                    first_name=first_name)
+                                sender.send(
+                                    to=student["email"],
+                                    subject=subject,
+                                    body=body,
+                                    attachment_path=pdf_path,
+                                )
+                                status = "sent"
+
+                                # Rate limit between sends. Jittered (3–5s by
+                                # default) so the cadence doesn't look mechanical
+                                # — a constant 2s gap is itself a spam signal.
+                                if not sender.dry_run and i < len(students) - 1:
+                                    time.sleep(random.uniform(
+                                        SEND_DELAY_MIN_SECONDS,
+                                        SEND_DELAY_MAX_SECONDS))
+
+                            except Exception as e:
+                                status = "failed"
+                                error = str(e)
+
+                            # Record this student's result
+                            history = SendHistory(
+                                student_name=student["name"],
+                                student_email=student["email"],
+                                preset_name=config.get("program_title", ""),
+                                status=status,
+                                error_message=error,
+                                job_id=job_id,
                             )
-                            status = "sent"
+                            db.session.add(history)
 
-                            # Rate limit between sends. Jittered (3–5s by
-                            # default) so the cadence doesn't look mechanical
-                            # — a constant 2s gap is itself a spam signal.
-                            if not sender.dry_run and i < len(students) - 1:
-                                time.sleep(random.uniform(
-                                    SEND_DELAY_MIN_SECONDS,
-                                    SEND_DELAY_MAX_SECONDS))
-
-                        except Exception as e:
-                            status = "failed"
-                            error = str(e)
-
-                        # Record this student's result
-                        history = SendHistory(
-                            student_name=student["name"],
-                            student_email=student["email"],
-                            preset_name=config.get("program_title", ""),
-                            status=status,
-                            error_message=error,
-                            job_id=job_id,
-                        )
-                        db.session.add(history)
-
-                        # Update job progress
-                        job.processed_count = i + 1
-                        db.session.commit()
+                            # Update job progress
+                            job.processed_count = i + 1
+                            db.session.commit()
 
         # Spin up the self-ping keep-alive for the duration of this job
         # so a long batch (~30 min for 400 students) doesn't get killed
