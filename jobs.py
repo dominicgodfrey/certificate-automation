@@ -18,6 +18,7 @@ from string import Template
 from models import db, Job, SendHistory
 from renderer import CertificateRenderer
 from emailer import EmailSender, EmailError
+from template_registry import DEFAULT_TEMPLATE, template_file
 
 ROOT = Path(__file__).parent
 KEEP_RECENT_JOB_DIRS = 5
@@ -143,15 +144,19 @@ def process_job(app, job_id: int) -> None:
         # student's first name — varied subjects look much less like a
         # spam blast (which typically reuses one subject for the whole
         # batch) and meaningfully improve inbox placement.
+        # Recognition templates don't have a program_title, so fall back
+        # to a generic phrase when it's missing.
+        program_label = config.get("program_title") or "ThinkNeuro"
         email_subject_template = config.get("email_subject") or \
-            f"$first_name, your {config.get('program_title', 'Program')} Certificate"
+            f"$first_name, your {program_label} Certificate"
         email_body_template = config.get("email_body") or (
             "Dear $first_name,\n\n"
-            f"Congratulations on your successful completion of the "
-            f"{config.get('program_title', 'program')}! "
+            f"Congratulations! "
             "Your certificate is attached to this email.\n\n"
             "- The ThinkNeuro Team"
         )
+
+        tpl_file = template_file(config.get("template_id", DEFAULT_TEMPLATE))
 
         output_dir = ROOT / "output" / f"job_{job_id}"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -160,7 +165,7 @@ def process_job(app, job_id: int) -> None:
             with sender:
                 for chunk_start in range(0, len(students), RENDERER_RESTART_EVERY):
                     chunk = students[chunk_start:chunk_start + RENDERER_RESTART_EVERY]
-                    async with CertificateRenderer() as renderer:
+                    async with CertificateRenderer(template_name=tpl_file) as renderer:
                         for j, student in enumerate(chunk):
                             i = chunk_start + j
                             status = "pending"

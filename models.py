@@ -22,6 +22,10 @@ class Preset(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), unique=True, nullable=False)
     config_json = db.Column(db.Text, nullable=False)  # JSON blob of certificate settings
+    # Which certificate template this preset targets. server_default lets
+    # existing rows in SQLite/Postgres backfill cleanly on first create_all().
+    template_id = db.Column(db.String(50), nullable=False,
+                            server_default="completion", default="completion")
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
                            onupdate=lambda: datetime.now(timezone.utc))

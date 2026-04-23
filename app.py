@@ -10,6 +10,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 
 from models import db, User, Preset, PreviewDraft
+from template_registry import TEMPLATES, DEFAULT_TEMPLATE, template_file
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
@@ -48,6 +49,25 @@ def create_app() -> Flask:
     db.init_app(app)
     with app.app_context():
         db.create_all()
+
+        # Lightweight, idempotent migration: add Preset.template_id to
+        # existing databases. SQLAlchemy's create_all() creates missing
+        # tables but never adds columns to existing ones, so when this
+        # column was introduced in the multi-template feature, upgrading
+        # instances need a one-shot ALTER TABLE. Existing rows are
+        # backfilled to 'completion' so old presets keep rendering the
+        # original layout.
+        from sqlalchemy import inspect, text
+        insp = inspect(db.engine)
+        if "presets" in insp.get_table_names():
+            cols = {c["name"] for c in insp.get_columns("presets")}
+            if "template_id" not in cols:
+                with db.engine.begin() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE presets ADD COLUMN template_id "
+                        "VARCHAR(50) NOT NULL DEFAULT 'completion'"
+                    ))
+                print("Migration: added presets.template_id column.")
 
         # Auto-seed admin on first startup if no users exist
         if User.query.count() == 0:
@@ -161,13 +181,21 @@ def create_app() -> Flask:
     def dashboard():
         from models import Job, SendHistory
         presets = Preset.query.order_by(Preset.name).all()
+        # Shape presets for the template so the frontend can filter by
+        # template_id client-side without an extra request.
+        presets_view = [
+            {"id": p.id, "name": p.name, "template_id": p.template_id}
+            for p in presets
+        ]
         # Load last-used preset from session, or default to empty
         active_preset_id = session.get("active_preset_id")
         active_config = None
+        active_template_id = session.get("active_template_id", DEFAULT_TEMPLATE)
         if active_preset_id:
             preset = db.session.get(Preset, active_preset_id)
             if preset:
                 active_config = json.loads(preset.config_json)
+                active_template_id = preset.template_id
 
         # Surface any of THIS user's failed jobs that still have students
         # missing a successful send. Lets the operator finish an
@@ -200,9 +228,12 @@ def create_app() -> Flask:
                 continue
 
         return render_template("dashboard.html",
-                               presets=presets,
+                               presets=presets_view,
                                active_preset_id=active_preset_id,
                                active_config=active_config,
+                               active_template_id=active_template_id,
+                               templates_meta=TEMPLATES,
+                               default_template_id=DEFAULT_TEMPLATE,
                                unfinished_jobs=unfinished)
 
     # --- Preset API routes ---
@@ -214,7 +245,12 @@ def create_app() -> Flask:
         if not preset:
             return jsonify({"error": "Preset not found"}), 404
         session["active_preset_id"] = preset_id
-        return jsonify({"config": json.loads(preset.config_json), "name": preset.name})
+        session["active_template_id"] = preset.template_id
+        return jsonify({
+            "config": json.loads(preset.config_json),
+            "name": preset.name,
+            "template_id": preset.template_id,
+        })
 
     @app.route("/presets/save", methods=["POST"])
     @login_required
@@ -222,21 +258,39 @@ def create_app() -> Flask:
         data = request.get_json()
         name = data.get("name", "").strip()
         config = data.get("config")
+        # Template id can come top-level or embedded in config; prefer top-level.
+        template_id = (data.get("template_id")
+                       or (config or {}).get("template_id")
+                       or DEFAULT_TEMPLATE)
+        if template_id not in TEMPLATES:
+            template_id = DEFAULT_TEMPLATE
 
         if not name or not config:
             return jsonify({"error": "Name and config are required"}), 400
 
         existing = Preset.query.filter_by(name=name).first()
         if existing:
+            # Don't let a save reassign a preset to a different template —
+            # presets are template-scoped, so a same-name preset under a
+            # different template is a separate row.
+            if existing.template_id != template_id:
+                return jsonify({
+                    "error": (f"A preset named '{name}' already exists for "
+                              f"the '{existing.template_id}' template. "
+                              "Choose a different name.")
+                }), 400
             existing.config_json = json.dumps(config)
             db.session.commit()
             session["active_preset_id"] = existing.id
+            session["active_template_id"] = existing.template_id
             return jsonify({"message": f"Updated '{name}'", "id": existing.id})
         else:
-            preset = Preset(name=name, config_json=json.dumps(config))
+            preset = Preset(name=name, config_json=json.dumps(config),
+                            template_id=template_id)
             db.session.add(preset)
             db.session.commit()
             session["active_preset_id"] = preset.id
+            session["active_template_id"] = preset.template_id
             return jsonify({"message": f"Saved '{name}'", "id": preset.id})
 
     @app.route("/presets/delete/<int:preset_id>", methods=["DELETE"])
@@ -365,22 +419,15 @@ def create_app() -> Flask:
             return "Invalid student index", 400
 
         student = students[student_index]
-        render_data = {
-            "student_name": student["name"],
-            "date": config.get("date", ""),
-            "program_title": config.get("program_title", ""),
-            "program_description": config.get("program_description", ""),
-            "hours": config.get("hours", ""),
-            "footer": config.get("footer", ""),
-            "signatories": config.get("signatories", []),
-        }
+        render_data = _build_render_data(student, config)
+        tpl_file = template_file(config.get("template_id", DEFAULT_TEMPLATE))
 
         output_dir = ROOT / "output" / "preview"
         output_dir.mkdir(parents=True, exist_ok=True)
         pdf_path = output_dir / f"preview_{student_index}.pdf"
 
         async def do_render():
-            async with CertificateRenderer() as renderer:
+            async with CertificateRenderer(template_name=tpl_file) as renderer:
                 await renderer.render(render_data, pdf_path)
 
         asyncio.run(do_render())
@@ -407,15 +454,8 @@ def create_app() -> Flask:
             return "Invalid student index", 400
 
         student = students[student_index]
-        render_data = {
-            "student_name": student["name"],
-            "date": config.get("date", ""),
-            "program_title": config.get("program_title", ""),
-            "program_description": config.get("program_description", ""),
-            "hours": config.get("hours", ""),
-            "footer": config.get("footer", ""),
-            "signatories": config.get("signatories", []),
-        }
+        render_data = _build_render_data(student, config)
+        tpl_file = template_file(config.get("template_id", DEFAULT_TEMPLATE))
 
         output_dir = ROOT / "output" / "preview"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -426,7 +466,7 @@ def create_app() -> Flask:
                 loader=FileSystemLoader(str(TEMPLATES)),
                 autoescape=True,
             )
-            template = env.get_template("certificate.html")
+            template = env.get_template(tpl_file)
             html = template.render(**render_data)
             tmp_path = TEMPLATES / f"_preview_{student_index}.html"
             tmp_path.write_text(html, encoding="utf-8")
@@ -647,10 +687,11 @@ def create_app() -> Flask:
         output_dir = ROOT / "output" / "download"
         output_dir.mkdir(parents=True, exist_ok=True)
         zip_path = ROOT / "output" / "certificates.zip"
+        tpl_file = template_file(config.get("template_id", DEFAULT_TEMPLATE))
 
         async def do_render():
             pdf_paths = []
-            async with CertificateRenderer() as renderer:
+            async with CertificateRenderer(template_name=tpl_file) as renderer:
                 for student in students:
                     slug = "".join(c if c.isalnum() else "_"
                                    for c in student["name"]).strip("_")

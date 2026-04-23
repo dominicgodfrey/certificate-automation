@@ -77,6 +77,19 @@
   font-weight: 600;
   color: var(--navy);
 }
+/* Form fields whose visibility is template-scoped. Hidden by default
+   (applyTemplateVisibility unhides the ones relevant to the active
+   template on page load and on template-change). */
+.tpl-field { display: none; }
+.tpl-field.visible { display: block; }
+.sig-field-wrap { display: none; }
+.sig-field-wrap.visible { display: block; }
+.optional-tag {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--gray-500);
+  margin-left: 0.35rem;
+}
 .btn-remove {
   background: none;
   border: none;
@@ -220,6 +233,20 @@
   </div>
   {% endif %}
 
+  <!-- Template Selection -->
+  <div class="section">
+    <div class="section-title">Certificate Template</div>
+    <div class="form-group" style="margin-bottom:0;">
+      <select class="form-input" id="template-select" onchange="onTemplateChange()">
+        {% for tid, meta in templates_meta.items() %}
+        <option value="{{ tid }}" {% if active_template_id == tid %}selected{% endif %}>
+          {{ meta.label }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
   <!-- Preset Management -->
   <div class="section">
     <div class="section-title">Template Preset</div>
@@ -228,7 +255,8 @@
         <select class="form-input" id="preset-select">
           <option value="">— Select a preset —</option>
           {% for p in presets %}
-          <option value="{{ p.id }}" {% if active_preset_id == p.id %}selected{% endif %}>
+          <option value="{{ p.id }}" data-template-id="{{ p.template_id }}"
+                  {% if active_preset_id == p.id %}selected{% endif %}>
             {{ p.name }}
           </option>
           {% endfor %}
@@ -245,13 +273,13 @@
     <div class="section-title">Certificate Settings</div>
     <form id="cert-form">
       <div class="row">
-        <div class="form-group">
+        <div class="form-group tpl-field" data-field="program_title">
           <label class="form-label" for="program_title">Program Title</label>
           <input class="form-input" type="text" id="program_title" name="program_title"
                  value="{{ active_config.program_title if active_config else '' }}"
                  placeholder="e.g. Bibliometrics Research Internship Intensive">
         </div>
-        <div class="form-group">
+        <div class="form-group tpl-field" data-field="date">
           <label class="form-label" for="date">Date</label>
           <input class="form-input" type="text" id="date" name="date"
                  value="{{ active_config.date if active_config else '' }}"
@@ -260,7 +288,7 @@
       </div>
 
       <div class="row">
-        <div class="form-group">
+        <div class="form-group tpl-field" data-field="hours">
           <label class="form-label" for="hours">Hours Completed</label>
           <input class="form-input" type="text" id="hours" name="hours"
                  value="{{ active_config.hours if active_config else '' }}"
@@ -269,13 +297,13 @@
         <div class="form-group"></div>
       </div>
 
-      <div class="form-group">
+      <div class="form-group tpl-field" data-field="program_description">
         <label class="form-label" for="program_description">Program Description</label>
         <textarea class="form-textarea" id="program_description" name="program_description"
                   placeholder="e.g. a foundational internship program in...">{{ active_config.program_description if active_config else '' }}</textarea>
       </div>
 
-      <div class="form-group">
+      <div class="form-group tpl-field" data-field="footer">
         <label class="form-label" for="footer">Footer Text</label>
         <textarea class="form-textarea" id="footer" name="footer" style="min-height: 50px;"
                   placeholder="e.g. ThinkNeuro, LLC is an education technology organization...">{{ active_config.footer if active_config else '' }}</textarea>
@@ -315,34 +343,42 @@
             <button class="btn-remove" onclick="removeSignatory(this)" title="Remove">&times;</button>
           </div>
           <div class="row">
-            <div class="form-group">
+            <div class="form-group sig-field-wrap" data-sig-field="cursive">
               <label class="form-label">Signature (cursive name)</label>
-              <input class="form-input sig-cursive" type="text" value="{{ sig.cursive }}"
+              <input class="form-input sig-cursive" type="text" value="{{ sig.cursive or '' }}"
                      placeholder="e.g. Kaushik Venkatesh">
             </div>
-            <div class="form-group">
+            <div class="form-group sig-field-wrap" data-sig-field="name">
               <label class="form-label">Formal Name</label>
-              <input class="form-input sig-name" type="text" value="{{ sig.name }}"
+              <input class="form-input sig-name" type="text" value="{{ sig.name or '' }}"
                      placeholder="e.g. Dr. Kaushik Venkatesh">
             </div>
           </div>
           <div class="row">
-            <div class="form-group">
-              <label class="form-label">Degrees</label>
-              <input class="form-input sig-degrees" type="text" value="{{ sig.degrees }}"
+            <div class="form-group sig-field-wrap" data-sig-field="title">
+              <label class="form-label">Title / Role</label>
+              <input class="form-input sig-title" type="text" value="{{ sig.title or '' }}"
+                     placeholder="e.g. Chief Administrative Officer">
+            </div>
+            <div class="form-group sig-field-wrap" data-sig-field="degrees">
+              <label class="form-label">Degrees<span class="optional-tag"></span></label>
+              <input class="form-input sig-degrees" type="text" value="{{ sig.degrees or '' }}"
                      placeholder="e.g. MD, MBA, MPH">
             </div>
-            <div class="form-group">
-              <label class="form-label">Institution</label>
-              <input class="form-input sig-institution" type="text" value="{{ sig.institution }}"
+          </div>
+          <div class="row">
+            <div class="form-group sig-field-wrap" data-sig-field="institution">
+              <label class="form-label">Institution<span class="optional-tag"></span></label>
+              <input class="form-input sig-institution" type="text" value="{{ sig.institution or '' }}"
                      placeholder="e.g. Harvard Medical School">
             </div>
+            <div class="form-group"></div>
           </div>
         </div>
         {% endfor %}
       {% endif %}
     </div>
-    <button class="btn btn-secondary" onclick="addSignatory()">+ Add Signatory</button>
+    <button class="btn btn-secondary" id="add-signatory-btn" onclick="addSignatory()">+ Add Signatory</button>
   </div>
 
   <!-- Student Data -->
@@ -424,6 +460,84 @@
 <div class="toast" id="toast"></div>
 
 <script>
+  // Template metadata injected from the server. Drives form-field
+  // visibility, signatory-field visibility, and the max-signatories cap.
+  const TEMPLATES_META = {{ templates_meta|tojson }};
+  const DEFAULT_TEMPLATE = {{ default_template_id|tojson }};
+
+  function getActiveTemplate() {
+    return document.getElementById('template-select').value || DEFAULT_TEMPLATE;
+  }
+
+  function templateMeta(tid) {
+    return TEMPLATES_META[tid] || TEMPLATES_META[DEFAULT_TEMPLATE];
+  }
+
+  // Which signatory fields are OPTIONAL under the active template.
+  // Used to decorate their labels so the user knows they can be left blank.
+  function sigOptionalFields(tid) {
+    const meta = templateMeta(tid);
+    const required = new Set(meta.sig_required || []);
+    return (meta.sig_fields || []).filter(f => !required.has(f));
+  }
+
+  function applyTemplateVisibility() {
+    const tid = getActiveTemplate();
+    const meta = templateMeta(tid);
+
+    // Main form fields: show the ones listed in meta.fields, hide the rest.
+    const activeFields = meta.fields || {};
+    document.querySelectorAll('.tpl-field').forEach(el => {
+      const f = el.getAttribute('data-field');
+      if (activeFields[f]) el.classList.add('visible');
+      else el.classList.remove('visible');
+    });
+
+    // Signatory field visibility + optional decoration inside each card.
+    const sigFields = new Set(meta.sig_fields || []);
+    const optionalSet = new Set(sigOptionalFields(tid));
+    document.querySelectorAll('.signatory-card').forEach(card => {
+      card.querySelectorAll('.sig-field-wrap').forEach(wrap => {
+        const f = wrap.getAttribute('data-sig-field');
+        if (sigFields.has(f)) wrap.classList.add('visible');
+        else wrap.classList.remove('visible');
+        const tag = wrap.querySelector('.optional-tag');
+        if (tag) tag.textContent = optionalSet.has(f) ? '(optional)' : '';
+      });
+    });
+
+    // Filter the preset dropdown to presets tied to this template.
+    const presetSel = document.getElementById('preset-select');
+    let activeValid = false;
+    Array.from(presetSel.options).forEach(opt => {
+      if (!opt.value) { opt.hidden = false; return; }  // placeholder
+      const opt_tid = opt.getAttribute('data-template-id') || DEFAULT_TEMPLATE;
+      const matches = opt_tid === tid;
+      opt.hidden = !matches;
+      if (opt.selected && matches) activeValid = true;
+    });
+    if (!activeValid) presetSel.value = '';
+
+    // Cap the "+ Add Signatory" button to this template's max.
+    updateAddSignatoryButton();
+  }
+
+  function updateAddSignatoryButton() {
+    const tid = getActiveTemplate();
+    const max = templateMeta(tid).max_signatories || 4;
+    const btn = document.getElementById('add-signatory-btn');
+    if (!btn) return;
+    const current = document.querySelectorAll('.signatory-card').length;
+    btn.disabled = current >= max;
+    btn.textContent = current >= max
+      ? `Max ${max} signatories for this template`
+      : '+ Add Signatory';
+  }
+
+  function onTemplateChange() {
+    applyTemplateVisibility();
+  }
+
   function showToast(msg) {
     const t = document.getElementById('toast');
     t.textContent = msg;
@@ -437,11 +551,13 @@
       sigs.push({
         cursive: card.querySelector('.sig-cursive').value,
         name: card.querySelector('.sig-name').value,
+        title: card.querySelector('.sig-title').value,
         degrees: card.querySelector('.sig-degrees').value,
         institution: card.querySelector('.sig-institution').value,
       });
     });
     return {
+      template_id: getActiveTemplate(),
       program_title: document.getElementById('program_title').value,
       date: document.getElementById('date').value,
       hours: document.getElementById('hours').value,
@@ -453,7 +569,10 @@
     };
   }
 
-  function setConfig(cfg) {
+  function setConfig(cfg, templateId) {
+    if (templateId) {
+      document.getElementById('template-select').value = templateId;
+    }
     document.getElementById('program_title').value = cfg.program_title || '';
     document.getElementById('date').value = cfg.date || '';
     document.getElementById('hours').value = cfg.hours || '';
@@ -465,11 +584,19 @@
     container.innerHTML = '';
     sigCount = 0;
     (cfg.signatories || []).forEach(sig => addSignatory(sig));
+    applyTemplateVisibility();
   }
 
   let sigCount = document.querySelectorAll('.signatory-card').length;
 
   function addSignatory(data) {
+    const tid = getActiveTemplate();
+    const max = templateMeta(tid).max_signatories || 4;
+    const current = document.querySelectorAll('.signatory-card').length;
+    if (current >= max && !data) {
+      showToast(`This template allows at most ${max} signatories`);
+      return;
+    }
     sigCount++;
     const container = document.getElementById('signatories-container');
     const card = document.createElement('div');
@@ -480,13 +607,13 @@
         <button class="btn-remove" onclick="removeSignatory(this)" title="Remove">&times;</button>
       </div>
       <div class="row">
-        <div class="form-group">
+        <div class="form-group sig-field-wrap" data-sig-field="cursive">
           <label class="form-label">Signature (cursive name)</label>
           <input class="form-input sig-cursive" type="text"
                  value="${data ? (data.cursive || '') : ''}"
                  placeholder="e.g. Kaushik Venkatesh">
         </div>
-        <div class="form-group">
+        <div class="form-group sig-field-wrap" data-sig-field="name">
           <label class="form-label">Formal Name</label>
           <input class="form-input sig-name" type="text"
                  value="${data ? (data.name || '') : ''}"
@@ -494,21 +621,31 @@
         </div>
       </div>
       <div class="row">
-        <div class="form-group">
-          <label class="form-label">Degrees</label>
+        <div class="form-group sig-field-wrap" data-sig-field="title">
+          <label class="form-label">Title / Role</label>
+          <input class="form-input sig-title" type="text"
+                 value="${data ? (data.title || '') : ''}"
+                 placeholder="e.g. Chief Administrative Officer">
+        </div>
+        <div class="form-group sig-field-wrap" data-sig-field="degrees">
+          <label class="form-label">Degrees<span class="optional-tag"></span></label>
           <input class="form-input sig-degrees" type="text"
                  value="${data ? (data.degrees || '') : ''}"
                  placeholder="e.g. MD, MBA, MPH">
         </div>
-        <div class="form-group">
-          <label class="form-label">Institution</label>
+      </div>
+      <div class="row">
+        <div class="form-group sig-field-wrap" data-sig-field="institution">
+          <label class="form-label">Institution<span class="optional-tag"></span></label>
           <input class="form-input sig-institution" type="text"
                  value="${data ? (data.institution || '') : ''}"
                  placeholder="e.g. Harvard Medical School">
         </div>
+        <div class="form-group"></div>
       </div>
     `;
     container.appendChild(card);
+    applyTemplateVisibility();
   }
 
   function removeSignatory(btn) {
@@ -518,6 +655,7 @@
     }
     btn.closest('.signatory-card').remove();
     renumberSignatories();
+    updateAddSignatoryButton();
   }
 
   function renumberSignatories() {
@@ -533,7 +671,7 @@
     const res = await fetch(`/presets/load/${sel.value}`);
     const data = await res.json();
     if (res.ok) {
-      setConfig(data.config);
+      setConfig(data.config, data.template_id);
       showToast(`Loaded "${data.name}"`);
     } else {
       showToast(data.error || 'Failed to load');
@@ -546,10 +684,15 @@
     const name = prompt('Save preset as:', existingName);
     if (!name) return;
 
+    const cfg = getConfig();
     const res = await fetch('/presets/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, config: getConfig() }),
+      body: JSON.stringify({
+        name,
+        template_id: cfg.template_id,
+        config: cfg,
+      }),
     });
     const data = await res.json();
     if (res.ok) {
@@ -576,10 +719,12 @@
     }
   }
 
-  // Initialize with one empty signatory if none loaded
+  // Initialize with one empty signatory if none loaded, then apply
+  // template-driven visibility so the form reflects the active template.
   if (document.querySelectorAll('.signatory-card').length === 0) {
     addSignatory();
   }
+  applyTemplateVisibility();
 
   // --- Student data management ---
   let students = [];
@@ -722,9 +867,26 @@
     }
 
     const config = getConfig();
-    if (!config.program_title) {
+    // Template-aware validation: Completion requires a program title,
+    // Recognition requires a description.
+    const meta = templateMeta(config.template_id);
+    if (meta.fields.program_title && !config.program_title) {
       showToast('Enter a program title first');
       return;
+    }
+    if (meta.fields.program_description && !config.program_description) {
+      showToast('Enter a program description first');
+      return;
+    }
+    // Check required signatory fields are filled on every card.
+    const required = meta.sig_required || [];
+    for (let i = 0; i < config.signatories.length; i++) {
+      for (const f of required) {
+        if (!config.signatories[i][f]) {
+          showToast(`Signatory ${i + 1} is missing ${f}`);
+          return;
+        }
+      }
     }
 
     // Strip the source field before sending
