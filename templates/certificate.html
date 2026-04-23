@@ -58,7 +58,7 @@
   }
   .name {
     font-family: "Alice", "Times New Roman", serif;
-    font-size: 48pt;
+    font-size: 36pt;
     color: #000;
     margin-top: 0.35in;
     line-height: 1.2;
@@ -178,10 +178,10 @@
 
   .footer {
     position: absolute;
-    bottom: 0.25in;
-    right: 0.35in;
+    bottom: 0.15in;
+    right: 0.2in;
     font-size: 8pt;
-    text-align: right;
+    text-align: center;
     max-width: 2.1in;
     line-height: 1.35;
     color: #0c304e;
@@ -232,7 +232,7 @@
       const nameEl = document.getElementById('student-name');
       if (nameEl) {
         const maxWidth = nameEl.parentElement.clientWidth;
-        let size = 48;
+        let size = 36;
         nameEl.style.fontSize = size + 'pt';
         while (nameEl.scrollWidth > maxWidth && size > 18) {
           size -= 1;
