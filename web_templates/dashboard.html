@@ -298,7 +298,8 @@
       </div>
 
       <div class="form-group tpl-field" data-field="program_description">
-        <label class="form-label" for="program_description">Program Description</label>
+        <label class="form-label" id="program_description_label"
+               for="program_description">Program Description</label>
         <textarea class="form-textarea" id="program_description" name="program_description"
                   placeholder="e.g. a foundational internship program in...">{{ active_config.program_description if active_config else '' }}</textarea>
       </div>
@@ -517,6 +518,16 @@
       if (opt.selected && matches) activeValid = true;
     });
     if (!activeValid) presetSel.value = '';
+
+    // Per-template label tweaks: Recognition's "program_description" is
+    // just a plain description of the award, not a program — so drop
+    // "Program" from the label when that template is active.
+    const descLabel = document.getElementById('program_description_label');
+    if (descLabel) {
+      descLabel.textContent = (tid === 'recognition')
+        ? 'Description'
+        : 'Program Description';
+    }
 
     // Cap the "+ Add Signatory" button to this template's max.
     updateAddSignatoryButton();
