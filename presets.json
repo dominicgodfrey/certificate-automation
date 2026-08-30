@@ -1,1 +1,34 @@
-[]
+[
+  {
+    "id": 1,
+    "name": "Bibliometrics Research Internship Intensive",
+    "template_id": "completion",
+    "config": {
+      "program_title": "Bibliometrics Research Internship Intensive",
+      "date": "April 19th, 2026",
+      "hours": "100",
+      "program_description": "a foundational internship program in bibliometric methods, data analysis, and R programming designed and led by software engineers, faculty, and physician collaborators from Harvard, Stanford, and USC.",
+      "footer": "ThinkNeuro, LLC is an education technology organization advancing early-stage research through AI-supported learning experiences.",
+      "signatories": [
+        {
+          "cursive": "Kaushik Venkatesh",
+          "name": "Dr. Kaushik Venkatesh",
+          "degrees": "MD, MBA, MPH",
+          "institution": "Harvard Medical School"
+        },
+        {
+          "cursive": "Toby Barrack",
+          "name": "Dr. Toby Barrack",
+          "degrees": "MD, MBA",
+          "institution": "Stanford School of Medicine"
+        },
+        {
+          "cursive": "Shriya Srinivasan",
+          "name": "Prof. Shriya Srinivasan",
+          "degrees": "PhD",
+          "institution": "Harvard School of Engineering"
+        }
+      ]
+    }
+  }
+]
