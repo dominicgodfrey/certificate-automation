@@ -1,19 +1,9 @@
-"""SendGrid-based email sender with PDF attachment support.
+"""SendGrid-based email sender with attachment support.
 
-Uses SendGrid's HTTP API (not SMTP) because:
-- Purpose-built for transactional bulk sending; Gmail/Outlook recognize
-  SendGrid IPs as legitimate senders.
-- DKIM is handled at the provider level — already live for
-  thinkneuro.org via `s1._domainkey` CNAME.
-- No SMTP App Password dependency. API keys are app-scoped and do not
-  get revoked by Workspace policy changes.
-- No auth throttling / reconnect dance needed. Each send is a single
-  stateless HTTPS POST.
-
-Interface mirrors the old SMTP EmailSender so jobs.py works unchanged:
-  with EmailSender.from_env() as sender:
-      sender.send(to, subject, body, attachment_path)
-The context manager is a no-op (kept for backward compatibility).
+Uses SendGrid's HTTP API rather than SMTP: better deliverability for
+bulk sends, provider-level DKIM, app-scoped keys, and no reconnect
+handling. The context manager is a no-op kept for interface parity
+with the old SMTP sender.
 """
 import base64
 import os
@@ -62,10 +52,7 @@ class EmailSender:
     def smoke_test(cls) -> tuple[bool, str]:
         """Validate SENDGRID_API_KEY without sending mail.
 
-        Hits GET /v3/user/profile: 200 means the key is valid; anything
-        else means it's revoked, rate-limited, or misconfigured.
-        Never raises — returns (ok, message) so app startup can log and
-        continue.
+        Never raises — returns (ok, message) so startup can log and continue.
         """
         try:
             sender = cls.from_env()
@@ -124,12 +111,8 @@ class EmailSender:
             subject=subject,
             plain_text_content=body,
         )
-        # Replies should land back on the monitored sender inbox, not on
-        # whatever SendGrid's bounce address decays to.
         message.reply_to = ReplyTo(self.sender_email)
-        # List-Unsubscribe is a strong "legitimate bulk sender" signal to
-        # Gmail / Outlook / Yahoo. Mailto form doesn't require a public
-        # unsubscribe URL.
+        # List-Unsubscribe signals "legitimate bulk sender" to inbox providers.
         message.header = Header(
             "List-Unsubscribe",
             f"<mailto:{self.sender_email}?subject=Unsubscribe>",

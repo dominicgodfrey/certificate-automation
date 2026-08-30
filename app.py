@@ -20,11 +20,8 @@ ADMIN_USER_ID = "admin"
 
 
 class AdminUser(UserMixin):
-    """The single operator account, defined by env vars — no database.
-
-    Username comes from DEFAULT_ADMIN_USER (default 'admin'); the
-    password is DEFAULT_ADMIN_PASSWORD and must be set for login to work.
-    """
+    """The single operator account, defined by DEFAULT_ADMIN_USER/PASSWORD
+    env vars — no user database."""
     id = ADMIN_USER_ID
 
     @property
@@ -41,16 +38,12 @@ def create_app() -> Flask:
 
     app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
-    # No database: presets live in presets.json (+ a local overlay),
-    # jobs and previews are in-memory (single Gunicorn worker), and the
-    # durable record of every batch is its results CSV (download/email).
     print("Storage: presets.json + in-memory jobs (no database)")
     if not os.environ.get("DEFAULT_ADMIN_PASSWORD"):
         print("WARNING: DEFAULT_ADMIN_PASSWORD is not set — login disabled.")
 
-    # Loud-but-non-fatal email-provider credential smoke test. Catches
-    # a revoked / rate-limited SendGrid API key before an operator
-    # clicks Send and watches 400 students fail in a row.
+    # Non-fatal SendGrid credential check — catches a revoked key at
+    # startup instead of mid-batch.
     try:
         from emailer import EmailSender
         ok, msg = EmailSender.smoke_test()
@@ -80,13 +73,7 @@ def create_app() -> Flask:
 
     @app.route("/healthz", methods=["GET"])
     def healthz():
-        """Liveness probe + keep-alive target.
-
-        The background job thread pings this from within the same instance
-        during long batches so the host platform sees continuous HTTP
-        traffic and doesn't spin the web instance down mid-send. No auth,
-        no storage hit — must stay cheap.
-        """
+        """Liveness probe + keep-alive target (see jobs.py). Must stay cheap."""
         return "ok", 200
 
     @app.route("/", methods=["GET"])
@@ -106,8 +93,7 @@ def create_app() -> Flask:
 
             expected_user = os.environ.get("DEFAULT_ADMIN_USER", "admin")
             expected_pass = os.environ.get("DEFAULT_ADMIN_PASSWORD", "")
-            # compare_digest on both fields to avoid timing side-channels;
-            # an empty configured password always fails.
+            # constant-time compares; an unset password always fails
             if expected_pass \
                     and hmac.compare_digest(username, expected_user) \
                     and hmac.compare_digest(password, expected_pass):
@@ -128,8 +114,7 @@ def create_app() -> Flask:
     @login_required
     def dashboard():
         presets = preset_store.list()
-        # Shape presets for the template so the frontend can filter by
-        # template_id client-side without an extra request.
+        # template_id rides along so the frontend can filter client-side
         presets_view = [
             {"id": p["id"], "name": p["name"], "template_id": p["template_id"]}
             for p in presets
@@ -144,10 +129,8 @@ def create_app() -> Flask:
                 active_config = preset["config"]
                 active_template_id = preset["template_id"]
 
-        # Surface any of THIS user's failed jobs that still have students
-        # missing a successful send. Lets the operator finish an
-        # interrupted batch from the dashboard instead of having to
-        # remember the URL of the failed job page.
+        # Failed jobs with students still missing a send — lets the
+        # operator finish an interrupted batch from the dashboard.
         unfinished = job_store.unfinished(current_user.id)
 
         return render_template("dashboard.html",
@@ -193,9 +176,8 @@ def create_app() -> Flask:
             return jsonify({"error": "Name and config are required"}), 400
 
         existing = preset_store.find_by_name(name)
-        # Don't let a save reassign a preset to a different template —
-        # presets are template-scoped, so a same-name preset under a
-        # different template is a separate entry.
+        # Presets are template-scoped: a save can't reassign a name to a
+        # different template.
         if existing and existing["template_id"] != template_id:
             return jsonify({
                 "error": (f"A preset named '{name}' already exists for "
@@ -224,12 +206,7 @@ def create_app() -> Flask:
     @app.route("/presets/export/<int:preset_id>", methods=["GET"])
     @login_required
     def export_preset(preset_id):
-        """Download a preset as JSON, ready to paste into presets.json.
-
-        Presets saved through the UI live on the instance's ephemeral
-        disk and are lost on redeploy; adding the exported entry to the
-        repo's presets.json makes it permanent.
-        """
+        """Download a preset as JSON, ready to paste into presets.json."""
         preset = preset_store.get(preset_id)
         if not preset:
             return jsonify({"error": "Preset not found"}), 404
@@ -249,10 +226,8 @@ def create_app() -> Flask:
     def upload_csv():
         """Parse an uploaded CSV/XLSX and return headers + rows as JSON.
 
-        Special case: a results CSV from a previous batch (headers
-        name/email/status/error) is the retry path after a server
-        restart — rows already marked 'sent' are dropped so the operator
-        can re-send to just the students who still need a certificate.
+        A results CSV from a previous batch (name/email/status/error) is
+        the post-restart retry path: rows already marked 'sent' are dropped.
         """
         import pandas as pd
         import io
@@ -302,9 +277,8 @@ def create_app() -> Flask:
     def generate_preview():
         """Store certificate config + student list as the user's draft.
 
-        Kept server-side in memory (not in the session cookie) so that
-        large batches — up to 1000+ students — don't exceed the ~4KB
-        signed cookie limit and silently fail.
+        Server-side, not in the session cookie — large batches would
+        exceed the ~4KB signed-cookie limit and silently fail.
         """
         data = request.get_json()
         config = data.get("config")
@@ -325,8 +299,6 @@ def create_app() -> Flask:
         if issues:
             return jsonify({"error": "Student data issues:\n" + "\n".join(issues)}), 400
 
-        # Replaces any prior draft for this user, so abandoned previews
-        # don't accumulate.
         preview_drafts[current_user.id] = {
             "config": config,
             "students": students,
@@ -463,10 +435,8 @@ def create_app() -> Flask:
         if draft is None:
             return jsonify({"error": "No data to send"}), 400
 
-        # Duplicate-send guard: if the user already has a job that's queued
-        # or running and was created in the last 10 minutes, refuse to start
-        # a second one. Protects against double-clicks and accidental
-        # refreshes that would otherwise email every student twice.
+        # Duplicate-send guard: refuse a second job while one is in
+        # flight (double-clicks would email every student twice).
         recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
         in_flight = job_store.in_flight(current_user.id, recent_cutoff)
         if in_flight is not None:
@@ -491,14 +461,9 @@ def create_app() -> Flask:
     @app.route("/jobs/<int:job_id>/resend-missing", methods=["POST"])
     @login_required
     def resend_missing(job_id):
-        """Create a new job that re-sends only students who did NOT receive
-        the certificate in a prior (typically failed) job. "Missing" =
-        anyone from the original batch without a 'sent' result, so this
-        covers both explicitly failed sends and students who were never
-        reached because the worker died mid-batch.
-
-        Safe to call repeatedly: if the original batch fully succeeded,
-        the set of missing students is empty and we return 400.
+        """Re-send only students without a 'sent' result in a prior job —
+        covers failed sends and students never reached. Safe to call
+        repeatedly: an empty missing set returns 400.
         """
         from datetime import datetime, timedelta, timezone
         from jobs import start_job
@@ -519,8 +484,7 @@ def create_app() -> Flask:
                          "batch already has a successful send on record.",
             }), 400
 
-        # Same duplicate-send guard as /send-certificates. Applies here too:
-        # if a resend is already running we shouldn't kick off another one.
+        # Same duplicate-send guard as /send-certificates
         recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
         in_flight = job_store.in_flight(current_user.id, recent_cutoff)
         if in_flight is not None:

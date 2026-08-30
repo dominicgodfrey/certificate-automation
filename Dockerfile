@@ -41,14 +41,9 @@ RUN mkdir -p data output
 # Expose port
 EXPOSE 10000
 
-# Run with Gunicorn
-# - 1 worker: each send job launches Chromium in a background thread;
-#   with 2 workers, two simultaneous sends can OOM the instance. A
-#   single staff user polling progress is fine with 1 worker.
-# - 600s timeout: /download-all renders every PDF synchronously in the
-#   HTTP request and can easily exceed the old 120s ceiling at 400+
-#   students. 600s gives ~1.5s per PDF at 400 students, with headroom.
-# - bind to 0.0.0.0:10000 (Render's expected port)
+# 1 worker: in-memory job/preset state assumes a single process, and a
+# second Chromium during concurrent sends can OOM the instance.
+# 600s timeout: /download-all renders every PDF in one request.
 CMD ["gunicorn", "wsgi:app", \
      "--bind", "0.0.0.0:10000", \
      "--workers", "1", \

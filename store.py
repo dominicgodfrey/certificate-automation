@@ -1,19 +1,11 @@
-"""In-memory + file-backed storage. Replaces the old Postgres/SQLite models.
+"""In-memory + file-backed storage. Replaces the old database models.
 
-Design constraints that make this safe:
-- Gunicorn runs exactly 1 worker (see Dockerfile), so a single process
-  owns all state; no cross-process coordination is needed.
-- Durability for send results is provided by results CSVs that leave the
-  instance (download + emailed reports), not by server-side storage —
-  student PII intentionally never persists on the server.
-
-Presets are the one thing with file backing:
-- presets.json (committed to the repo) ships with every deploy and is
-  the durable home for presets worth keeping.
-- data/presets_local.json is an ephemeral overlay for presets created
-  or edited through the UI. It survives worker restarts on the same
-  instance but is lost on redeploy — promote a preset to presets.json
-  (via the Export button) to make it permanent.
+Safe because Gunicorn runs exactly 1 worker (see Dockerfile), so one
+process owns all state. Student PII intentionally never persists on the
+server — the durable send record is the results CSV that leaves the
+instance. Presets live in repo-committed presets.json plus an ephemeral
+local overlay (data/presets_local.json) for UI edits; GitHub sync or the
+Export button makes UI edits permanent.
 """
 import base64
 import itertools
@@ -43,17 +35,13 @@ def github_sync_enabled() -> bool:
 
 
 def _sync_presets_to_github(presets: list[dict]) -> str | None:
-    """Commit the merged preset list to presets.json in the GitHub repo.
+    """Commit the merged preset list to presets.json in the GitHub repo,
+    making UI-created presets survive redeploys. "[skip render]" in the
+    commit message stops Render from auto-deploying (a redeploy could
+    kill a batch in progress; the overlay already serves the preset).
 
-    This is what makes UI-created presets durable without touching code:
-    the running instance serves them from the local overlay immediately,
-    and this commit ensures the next deploy ships them too. The commit
-    message carries "[skip render]" so Render does NOT auto-deploy —
-    a redeploy here would kill any batch in progress for no benefit.
-
-    No-op when GITHUB_TOKEN is unset (the manual Export workflow applies).
-    Returns None on success, or a short warning string on failure —
-    never raises, because the local save has already succeeded.
+    No-op without GITHUB_TOKEN. Returns None on success or a short
+    warning on failure — never raises; the local save already landed.
     """
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -99,12 +87,8 @@ def _sync_presets_to_github(presets: list[dict]) -> str | None:
 
 
 class PresetStore:
-    """Merged view of repo presets + local overlay.
-
-    Overlay semantics: a local preset with the same id as a repo preset
-    shadows it (edit); ids in `deleted_ids` are hidden (delete). Both
-    only last until the next deploy for repo-backed presets.
-    """
+    """Merged view of repo presets + local overlay: same-id overlay
+    entries shadow repo entries (edit), `deleted_ids` hide them (delete)."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -185,12 +169,8 @@ class PresetStore:
 
     def delete(self, preset_id: int) -> tuple[str | None, str | None]:
         """Hide/remove a preset. Returns (name, sync_warning); name is
-        None if the preset wasn't found.
-
-        Without GitHub sync, a repo-backed preset reappears on the next
-        deploy unless also removed from presets.json by hand; with sync,
-        the removal is committed to the repo too.
-        """
+        None if not found. Without GitHub sync a repo-backed preset
+        reappears on the next deploy unless removed from presets.json."""
         preset = self.get(preset_id)
         if preset is None:
             return None, None
@@ -206,8 +186,8 @@ class PresetStore:
 
 
 class JobStore:
-    """In-memory send jobs. Lost on restart — by design; the durable
-    record of a batch is its results CSV (downloaded or emailed)."""
+    """In-memory send jobs. Lost on restart by design — the durable
+    record of a batch is its results CSV."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -279,6 +259,5 @@ class JobStore:
 preset_store = PresetStore()
 job_store = JobStore()
 
-# Preview drafts, keyed by user id. Replaced wholesale on each new
-# preview, so this never holds more than one batch per user.
+# Preview drafts keyed by user id; replaced wholesale on each new preview.
 preview_drafts: dict[str, dict] = {}

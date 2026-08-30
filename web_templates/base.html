@@ -206,8 +206,7 @@
   </nav>
   {% endif %}
 
-  {# Flash messages — login.html renders its own inside the card, so skip
-     them there via request.endpoint rather than a template flag. #}
+  {# Flash messages — login.html renders its own inside the card #}
   {% if request.endpoint != 'login' %}
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}

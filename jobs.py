@@ -1,12 +1,8 @@
 """Background job processor for certificate generation and email sending.
 
-Runs in a separate thread so the HTTP request returns immediately.
-Job state lives in the in-memory JobStore (single-worker Gunicorn), and
-every per-student outcome is durably exported three ways so a retry is
-always possible even if the instance dies mid-batch:
-- appended to a results CSV on disk (downloadable from the job page),
-- printed to stdout (survives the instance in Render's log retention),
-- emailed to the operator as checkpoint + final report attachments.
+Job state is in-memory (single-worker Gunicorn); each per-student outcome
+is also exported off-instance (results CSV, stdout, emailed reports) so a
+batch can be retried even if the instance dies mid-send.
 """
 import asyncio
 import csv
@@ -28,41 +24,29 @@ from template_registry import DEFAULT_TEMPLATE, template_file
 ROOT = Path(__file__).parent
 KEEP_RECENT_JOB_DIRS = 5
 
-# Per-message pacing. Slower + jittered sends look less like a spam burst
-# to receiving servers and stay well under typical SMTP throttle limits.
-# At 4s avg and 400 students this is a ~27 min batch, which is the right
-# trade-off for tomorrow's send.
+# Jittered per-message pacing so batches don't look like a spam burst.
 SEND_DELAY_MIN_SECONDS = 3.0
 SEND_DELAY_MAX_SECONDS = 5.0
 
-# Restart the Playwright browser every N students to prevent Chromium's
-# memory from accumulating over a long batch and triggering an OOM kill
-# on memory-constrained hosts (e.g. Render free tier at 512MB).
+# Restart Chromium every N students to cap memory growth on small hosts.
 RENDERER_RESTART_EVERY = 100
 
-# Email a partial results CSV to the operator every N students. If the
-# instance is hard-killed mid-batch (OOM), the last checkpoint bounds
-# the uncertainty window to at most N students — the operator re-uploads
-# the checkpoint CSV and only the tail needs eyeballing.
+# Email a partial results CSV every N students — bounds the uncertainty
+# window if the instance is hard-killed mid-batch.
 REPORT_CHECKPOINT_EVERY = 100
 
-# Keep-alive: free PaaS tiers (Render free, Fly hobby) spin the web
-# instance down after ~15 min of no incoming HTTP traffic. A background
-# job thread does NOT count as traffic, so a long batch will get its
-# instance killed mid-send. We hit our own /healthz from a side thread
-# every ~10 min while a job is active to keep the instance hot.
-KEEPALIVE_INTERVAL_SECONDS = 600  # 10 min, well under the 15-min sleep
+# Self-ping /healthz during a job so free-tier idle-sleep (~15 min of no
+# HTTP traffic) doesn't kill the instance mid-send.
+KEEPALIVE_INTERVAL_SECONDS = 600
 KEEPALIVE_PATH = "/healthz"
 
 RESULTS_CSV_HEADERS = ["name", "email", "status", "error"]
 
 
 def _start_keepalive(stop_event: threading.Event) -> threading.Thread | None:
-    """Spawn a thread that pings our own public URL until stop_event is set.
+    """Ping our own public URL until stop_event is set.
 
-    Only active when RENDER_EXTERNAL_URL (or KEEPALIVE_URL) is configured;
-    otherwise this is a no-op so local dev doesn't try to call out.
-    Failures are swallowed — keep-alive must never crash a send.
+    No-op unless RENDER_EXTERNAL_URL/KEEPALIVE_URL is set; never raises.
     """
     base = os.environ.get("KEEPALIVE_URL") or os.environ.get("RENDER_EXTERNAL_URL")
     if not base:
@@ -77,7 +61,7 @@ def _start_keepalive(stop_event: threading.Event) -> threading.Thread | None:
                     resp.read(64)
             except Exception as e:
                 print(f"keepalive ping failed (non-fatal): {e}")
-            # Sleep in short chunks so we exit promptly when stop_event fires.
+            # Sleep in 1s chunks so we exit promptly on stop_event.
             for _ in range(KEEPALIVE_INTERVAL_SECONDS):
                 if stop_event.is_set():
                     return
@@ -101,13 +85,8 @@ def _build_render_data(student: dict, config: dict) -> dict:
 
 
 def _cleanup_old_job_dirs(keep: int = KEEP_RECENT_JOB_DIRS) -> None:
-    """Delete all but the N most-recent `output/job_*` directories.
-
-    Each completed job leaves behind ~N student PDFs on disk. Over many
-    batches on a persistent instance this fills the disk. Keep recent
-    dirs around so the user can still use /download-all or debug a
-    recent send, and drop the rest.
-    """
+    """Delete all but the N most-recent `output/job_*` directories so
+    accumulated PDFs don't fill the disk."""
     output_root = ROOT / "output"
     if not output_root.exists():
         return
@@ -127,12 +106,9 @@ def _cleanup_old_job_dirs(keep: int = KEEP_RECENT_JOB_DIRS) -> None:
 
 
 def results_csv_text(job: dict) -> str:
-    """Render a job's per-student results as CSV text.
-
-    Includes a row for every student in the batch — students not yet
-    processed appear as 'pending', so a checkpoint CSV re-uploaded after
-    a crash covers the whole original list.
-    """
+    """Render a job's per-student results as CSV text. Unprocessed
+    students appear as 'pending' so a checkpoint CSV covers the whole
+    original list."""
     import io
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
@@ -152,8 +128,7 @@ def results_csv_text(job: dict) -> str:
 def _send_report(sender: EmailSender, job: dict, kind: str) -> None:
     """Email the current results CSV to the operator inbox.
 
-    `kind` is 'checkpoint', 'complete', or 'failed'. Never raises — a
-    report failure must not take down the batch it is reporting on.
+    `kind` is 'checkpoint', 'complete', or 'failed'. Never raises.
     """
     to = os.environ.get("RESULTS_EMAIL") or sender.sender_email
     sent = sum(1 for r in job["results"] if r["status"] == "sent")
@@ -202,12 +177,8 @@ def process_job(job_id: int) -> None:
         job["completed_at"] = datetime.now(timezone.utc)
         return
 
-    # Build email template. The default subject now includes the
-    # student's first name — varied subjects look much less like a
-    # spam blast (which typically reuses one subject for the whole
-    # batch) and meaningfully improve inbox placement.
-    # Recognition templates don't have a program_title, so fall back
-    # to a generic phrase when it's missing.
+    # Default subject includes the student's first name (varied subjects
+    # improve inbox placement); recognition templates have no program_title.
     program_label = config.get("program_title") or "ThinkNeuro"
     email_subject_template = config.get("email_subject") or \
         f"$first_name, your {program_label} Certificate"
@@ -255,9 +226,7 @@ def process_job(job_id: int) -> None:
                             )
                             status = "sent"
 
-                            # Rate limit between sends. Jittered (3–5s by
-                            # default) so the cadence doesn't look mechanical
-                            # — a constant 2s gap is itself a spam signal.
+                            # Jittered rate limit between sends
                             if not sender.dry_run and i < len(students) - 1:
                                 time.sleep(random.uniform(
                                     SEND_DELAY_MIN_SECONDS,
@@ -267,9 +236,8 @@ def process_job(job_id: int) -> None:
                             status = "failed"
                             error = str(e)
 
-                        # Record this student's result: in memory (frontend
-                        # polling + resend-missing) and on stdout (Render's
-                        # log retention is the last-resort recovery record).
+                        # Record result in memory (polling + resend-missing)
+                        # and on stdout (last-resort recovery via host logs).
                         job_store.add_result(job_id, {
                             "name": student["name"],
                             "email": student["email"],
@@ -280,16 +248,10 @@ def process_job(job_id: int) -> None:
                               f"{status} {student['name']} <{student['email']}>"
                               + (f" error={error}" if error else ""))
 
-                        # Checkpoint report: bounds the data-loss window if
-                        # the instance is hard-killed before the final report.
                         if (i + 1) % REPORT_CHECKPOINT_EVERY == 0 \
                                 and i + 1 < len(students):
                             _send_report(sender, job, "checkpoint")
 
-    # Spin up the self-ping keep-alive for the duration of this job
-    # so a long batch (~30 min for 400 students) doesn't get killed
-    # by free-tier idle-sleep. No-op outside Render / when the URL
-    # env var isn't set.
     keepalive_stop = threading.Event()
     keepalive_thread = _start_keepalive(keepalive_stop)
 
@@ -306,10 +268,7 @@ def process_job(job_id: int) -> None:
 
     job["completed_at"] = datetime.now(timezone.utc)
 
-    # Final report — the operator's durable copy of who got what.
     _send_report(sender, job, job["status"])
-
-    # Housekeeping: keep only the N most-recent job output directories.
     _cleanup_old_job_dirs()
 
 

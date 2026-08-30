@@ -833,8 +833,7 @@
     });
 
     document.getElementById('column-mapping').style.display = 'block';
-    // Results-CSV retry path: the server's note explains that already-sent
-    // students were excluded — more useful than the generic row count.
+    // data.note = results-CSV retry path (already-sent students excluded)
     showToast(data.note || `Loaded ${csvRows.length} rows from ${file.name}`);
   }
 
