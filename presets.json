@@ -4,29 +4,121 @@
     "name": "Bibliometrics Research Internship Intensive",
     "template_id": "completion",
     "config": {
+      "template_id": "completion",
       "program_title": "Bibliometrics Research Internship Intensive",
       "date": "April 19th, 2026",
       "hours": "100",
       "program_description": "a foundational internship program in bibliometric methods, data analysis, and R programming designed and led by software engineers, faculty, and physician collaborators from Harvard, Stanford, and USC.",
       "footer": "ThinkNeuro, LLC is an education technology organization advancing early-stage research through AI-supported learning experiences.",
+      "email_subject": "Bibliometrics Research Internship Certificate!",
+      "email_body": "Dear $first_name,\n\nCongratulations on completing the Bibliometrics Research Internship Spring 2026 cohort! Attached is your certificate. We hope this experience has been rewarding and a valuable stepping stone for what lies ahead in your professional career.\n\nBest regards,\nThe ThinkNeuro Team",
       "signatories": [
         {
           "cursive": "Kaushik Venkatesh",
           "name": "Dr. Kaushik Venkatesh",
+          "title": "",
           "degrees": "MD, MBA, MPH",
           "institution": "Harvard Medical School"
         },
         {
           "cursive": "Toby Barrack",
           "name": "Dr. Toby Barrack",
+          "title": "",
           "degrees": "MD, MBA",
           "institution": "Stanford School of Medicine"
         },
         {
           "cursive": "Shriya Srinivasan",
           "name": "Prof. Shriya Srinivasan",
+          "title": "",
           "degrees": "PhD",
           "institution": "Harvard School of Engineering"
+        }
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "name": "Bibliometrics Research Internship Regular",
+    "template_id": "completion",
+    "config": {
+      "template_id": "completion",
+      "program_title": "Bibliometrics Research Internship",
+      "date": "April 19th, 2026",
+      "hours": "50",
+      "program_description": "a foundational internship program in bibliometric methods, data analysis, and R\nProgramming with faculty keynotes from Harvard Engineering and USC Pharmacy.",
+      "footer": "ThinkNeuro, LLC is an education technology organization advancing early-stage research through AI-supported learning experiences.",
+      "email_subject": "Your Bibliometrics Research Internship Certificate",
+      "email_body": "Dear $first_name,\n\nCongratulations on completing the Bibliometrics Research Internship Spring 2026 cohort! Attached is your certificate. We hope this experience has been rewarding and a valuable stepping stone for what lies ahead in your professional career.\n\nBest regards,\nThinkNeuro Executive Team",
+      "signatories": [
+        {
+          "cursive": "Muntazir Chawla",
+          "name": "Muntazir Chawla",
+          "title": "",
+          "degrees": "VP of Program Management",
+          "institution": "ThinkNeuro LLC"
+        },
+        {
+          "cursive": "Shallon Kobusinge",
+          "name": "Shallon Kobusinge",
+          "title": "",
+          "degrees": "President",
+          "institution": "Caltech CS Careers"
+        }
+      ]
+    }
+  },
+  {
+    "id": 3,
+    "name": "Bibliometrics Research Internship Associate",
+    "template_id": "recognition",
+    "config": {
+      "template_id": "recognition",
+      "program_title": "",
+      "date": "",
+      "hours": "",
+      "program_description": "This award is presented to recognize outstanding leadership as an Associate, for successfully leading and guiding a team of interns through the research process during the Spring 2026 Bibliometrics Research Internship Intensive Cohort.",
+      "footer": "",
+      "email_subject": "Associate Certificate",
+      "email_body": "Dear $first_name, \n\nCongratulations on your completion of the Spring 2026 Bibliometrics Research Intensive Cohort as an associate! \n\nAttached is your certificate which recognizes your leadership. Your contributions played an important role in the success of the cohort, and we are grateful for the impact you made for your team. \n\nWe wish you the best of luck in your future endeavors!\n\nBest,\nThe ThinkNeuro Team",
+      "signatories": [
+        {
+          "cursive": "Sydney Do",
+          "name": "Sydney Do",
+          "title": "Chief Administrative Officer",
+          "degrees": "",
+          "institution": ""
+        },
+        {
+          "cursive": "Gavin Smith",
+          "name": "Gavin Smith",
+          "title": "Project Lead",
+          "degrees": "",
+          "institution": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": 4,
+    "name": "Bibliometrics Research Internship Co-associate",
+    "template_id": "recognition",
+    "config": {
+      "template_id": "recognition",
+      "program_title": "Bibliometrics Research Internship",
+      "date": "April 19th, 2026",
+      "hours": "100",
+      "program_description": "This award is presented to recognize outstanding leadership as a Co-associate, for successfully leading and guiding a team of interns through the research process during the Spring 2026 Bibliometrics Research Internship Cohort",
+      "footer": "ThinkNeuro, LLC is an education technology organization advancing early-stage research through AI-supported learning experiences.",
+      "email_subject": "Your Bibliometrics Research Internship Co-associate Certificate",
+      "email_body": "Dear $first_name,\n\nCongratulations on completing the Bibliometrics Research Internship Spring 2026 as a co-associate! We appreciate all of the hard work you put into your group. Your co-associate certificate is attached below.\n\nBest regards,\nThinkNeuro Executive Team",
+      "signatories": [
+        {
+          "cursive": "Muntazir Chawla",
+          "name": "Muntazir Chawla",
+          "title": "VP of Program Management",
+          "degrees": "",
+          "institution": "ThinkNeuro LLC"
         }
       ]
     }
