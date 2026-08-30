@@ -10,7 +10,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from flask_login import (LoginManager, UserMixin, login_user, logout_user,
                          login_required, current_user)
 
-from store import preset_store, job_store, preview_drafts
+from store import preset_store, job_store, preview_drafts, github_sync_enabled
 from template_registry import TEMPLATES, DEFAULT_TEMPLATE, template_file
 
 ROOT = Path(__file__).parent
@@ -157,7 +157,8 @@ def create_app() -> Flask:
                                active_template_id=active_template_id,
                                templates_meta=TEMPLATES,
                                default_template_id=DEFAULT_TEMPLATE,
-                               unfinished_jobs=unfinished)
+                               unfinished_jobs=unfinished,
+                               presets_synced=github_sync_enabled())
 
     # --- Preset API routes ---
 
@@ -202,21 +203,23 @@ def create_app() -> Flask:
                           "Choose a different name.")
             }), 400
 
-        preset, created = preset_store.save(name, config, template_id)
+        preset, created, warning = preset_store.save(name, config, template_id)
         session["active_preset_id"] = preset["id"]
         session["active_template_id"] = preset["template_id"]
         verb = "Saved" if created else "Updated"
-        return jsonify({"message": f"{verb} '{name}'", "id": preset["id"]})
+        message = f"{verb} '{name}'" + (f" — {warning}" if warning else "")
+        return jsonify({"message": message, "id": preset["id"]})
 
     @app.route("/presets/delete/<int:preset_id>", methods=["DELETE"])
     @login_required
     def delete_preset(preset_id):
-        name = preset_store.delete(preset_id)
+        name, warning = preset_store.delete(preset_id)
         if name is None:
             return jsonify({"error": "Preset not found"}), 404
         if session.get("active_preset_id") == preset_id:
             session.pop("active_preset_id", None)
-        return jsonify({"message": f"Deleted '{name}'"})
+        message = f"Deleted '{name}'" + (f" — {warning}" if warning else "")
+        return jsonify({"message": message})
 
     @app.route("/presets/export/<int:preset_id>", methods=["GET"])
     @login_required

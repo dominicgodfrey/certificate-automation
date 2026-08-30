@@ -270,9 +270,14 @@
       <button class="btn btn-danger" onclick="deletePreset()">Delete</button>
     </div>
     <div style="font-size: 0.8rem; color: var(--gray-400); margin-top: 0.5rem;">
+      {% if presets_synced %}
+      Presets are saved to the repository automatically and survive
+      redeploys. <strong>Export</strong> downloads a JSON backup.
+      {% else %}
       Presets saved here don't survive a redeploy. To keep one permanently,
       click <strong>Export</strong> and add the JSON to
       <code>presets.json</code> in the repository.
+      {% endif %}
     </div>
   </div>
 

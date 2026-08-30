@@ -93,6 +93,7 @@ No database is needed. Create a Web Service:
 | `DEFAULT_ADMIN_USER` | `admin` |
 | `DEFAULT_ADMIN_PASSWORD` | (choose a strong password — these are the live login credentials) |
 | `RENDER_EXTERNAL_URL` | (auto-set by Render — used for keep-alive pings during long batches) |
+| `GITHUB_TOKEN` | (optional — enables durable UI presets, see below) |
 
 - Click **Deploy**
 
@@ -105,9 +106,26 @@ credentials you set above.
 | Data | Where it lives | Survives restart/redeploy? |
 |------|----------------|---------------------------|
 | Presets in `presets.json` | Git repo, ships with each deploy | Yes |
-| Presets saved via the UI | Instance disk overlay | No — use **Export** to promote one into `presets.json` |
+| Presets saved via the UI | Instance disk overlay | With `GITHUB_TOKEN` set: yes — auto-committed to `presets.json`. Without: no — use **Export** to promote one by hand |
 | Job progress / send history | Process memory | No — the results CSV (downloaded or emailed) is the durable record |
 | Student names/emails | Memory during the batch only | Never persists server-side (by design) |
+
+### Durable presets from the UI (recommended)
+
+Set `GITHUB_TOKEN` to make presets created or edited in the web UI
+permanent with zero manual steps: the app commits the updated
+`presets.json` straight to the repo via the GitHub API. The commit
+message carries `[skip render]`, so Render does **not** redeploy (the
+running instance already serves the preset from its local overlay; the
+commit just guarantees the next deploy ships it too).
+
+Token setup: GitHub → Settings → Developer settings →
+[Fine-grained personal access tokens](https://github.com/settings/personal-access-tokens)
+→ Generate new token → Repository access: **only this repo** →
+Permissions: **Contents: Read and write**. Paste it into Render as
+`GITHUB_TOKEN`. If the token is missing or expired, preset saves still
+work on the running instance — the save toast warns that the preset
+won't survive a redeploy.
 
 ### Recovering an interrupted batch
 
