@@ -264,7 +264,15 @@
       </div>
       <button class="btn btn-secondary" onclick="loadPreset()">Load</button>
       <button class="btn btn-primary" onclick="savePreset()">Save</button>
+      <button class="btn btn-secondary" onclick="exportPreset()"
+              title="Download this preset as JSON. Presets saved here are lost on redeploy — add the exported JSON to presets.json in the repo to keep one permanently.">
+        Export</button>
       <button class="btn btn-danger" onclick="deletePreset()">Delete</button>
+    </div>
+    <div style="font-size: 0.8rem; color: var(--gray-400); margin-top: 0.5rem;">
+      Presets saved here don't survive a redeploy. To keep one permanently,
+      click <strong>Export</strong> and add the JSON to
+      <code>presets.json</code> in the repository.
     </div>
   </div>
 
@@ -714,6 +722,12 @@
     }
   }
 
+  function exportPreset() {
+    const sel = document.getElementById('preset-select');
+    if (!sel.value) { showToast('Select a preset first'); return; }
+    window.location.href = `/presets/export/${sel.value}`;
+  }
+
   async function deletePreset() {
     const sel = document.getElementById('preset-select');
     if (!sel.value) { showToast('Select a preset first'); return; }
@@ -814,7 +828,9 @@
     });
 
     document.getElementById('column-mapping').style.display = 'block';
-    showToast(`Loaded ${csvRows.length} rows from ${file.name}`);
+    // Results-CSV retry path: the server's note explains that already-sent
+    // students were excluded — more useful than the generic row count.
+    showToast(data.note || `Loaded ${csvRows.length} rows from ${file.name}`);
   }
 
   function applyColumnMapping() {

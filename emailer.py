@@ -103,7 +103,8 @@ class EmailSender:
 
     # --- send ------------------------------------------------------------
 
-    def send(self, to: str, subject: str, body: str, attachment_path: Path) -> None:
+    def send(self, to: str, subject: str, body: str, attachment_path: Path,
+             attachment_type: str = "application/pdf") -> None:
         attachment_path = Path(attachment_path)
         if not attachment_path.exists():
             raise EmailError(f"Attachment not found: {attachment_path}")
@@ -136,7 +137,7 @@ class EmailSender:
         message.attachment = Attachment(
             FileContent(encoded),
             FileName(attachment_path.name),
-            FileType("application/pdf"),
+            FileType(attachment_type),
             Disposition("attachment"),
         )
 

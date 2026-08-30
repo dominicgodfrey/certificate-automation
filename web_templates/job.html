@@ -168,6 +168,11 @@
       </div>
       <div class="progress-text" id="progress-text">0 of {{ job.total_students }} certificates</div>
       <div class="progress-subtext" id="progress-subtext">Preparing to send...</div>
+      <div class="progress-subtext" style="margin-top: 0.5rem;">
+        <a href="{{ url_for('job_results_csv', job_id=job.id) }}">
+          Download results CSV</a> — the durable record of this batch;
+        checkpoint copies are also emailed to the operator inbox.
+      </div>
     </div>
 
     <!-- Summary banner (hidden until complete) -->
@@ -230,10 +235,14 @@
     </div>
     <div class="action-bar">
       <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">← New Batch</a>
-      <button class="btn btn-primary" id="resend-missing-btn"
-              style="display:none;" onclick="resendMissing()">
-        Re-send missing only
-      </button>
+      <div style="display: flex; gap: 0.75rem;">
+        <a href="{{ url_for('job_results_csv', job_id=job.id) }}"
+           class="btn btn-secondary">Download results CSV</a>
+        <button class="btn btn-primary" id="resend-missing-btn"
+                style="display:none;" onclick="resendMissing()">
+          Re-send missing only
+        </button>
+      </div>
     </div>
   </div>
 

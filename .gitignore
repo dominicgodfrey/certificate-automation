@@ -12,5 +12,6 @@ __pycache__/
 templates/_render_*.html
 templates/_preview.html
 
-# DB
+# Local data (legacy DB + ephemeral preset overlay)
 data/app.db
+data/presets_local.json

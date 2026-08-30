@@ -20,17 +20,23 @@ upload a spreadsheet, preview, and send with one click.
 - **Inline certificate preview**: See each rendered certificate as a PNG
   before sending; navigate between students.
 - **Background batch processing**: Large batches (400+ students) render and
-  email in a background thread with live progress tracking. Close the browser
-  and come back — progress is persisted in the database.
-- **Resume interrupted sends**: If a job dies mid-batch (host restart, OOM,
-  revoked API key), the dashboard surfaces it and a one-click "resend missing"
-  flow re-sends only the students who never got their certificate.
+  email in a background thread with live progress tracking.
+- **Resume interrupted sends**: If a job fails mid-batch (revoked API key,
+  bounced addresses), the dashboard surfaces it and a one-click "resend
+  missing" flow re-sends only the students who never got their certificate.
+- **No database — results CSVs are the record**: Student PII never persists
+  server-side. Every batch writes a per-student results CSV (name, email,
+  sent/failed) that is downloadable from the job page and emailed to the
+  operator inbox as checkpoint reports (every 100 students) plus a final
+  report. After a server restart, re-uploading a results CSV on the
+  dashboard automatically excludes already-sent students — no duplicates.
 - **Email via SendGrid API**: Replaced the earlier SMTP path. A startup
   smoke test catches a revoked/rate-limited API key before an operator
   clicks Send. Per-message jitter (3–5s) keeps batches from looking like a
   spam burst.
-- **Login-protected**: Username/password auth with bcrypt-hashed passwords.
-  Auto-seeds an admin account on first startup.
+- **Login-protected**: Single operator account defined by
+  `DEFAULT_ADMIN_USER` / `DEFAULT_ADMIN_PASSWORD` env vars — no user
+  database to seed or manage.
 - **Dynamic text scaling**: Long student names and cursive signatures
   auto-shrink to fit their container.
 
@@ -43,8 +49,8 @@ cp .env.example .env   # edit with your SendGrid + admin credentials
 python app.py          # runs on http://localhost:5000
 ```
 
-On first startup, if `DEFAULT_ADMIN_USER` and `DEFAULT_ADMIN_PASSWORD` are set
-in `.env` and no users exist yet, an admin account is created automatically.
+Log in with `DEFAULT_ADMIN_USER` / `DEFAULT_ADMIN_PASSWORD` from `.env` —
+these are the live credentials (login is disabled until the password is set).
 
 ### CLI mode (no web server)
 
@@ -53,14 +59,6 @@ The original command-line pipeline is still available for one-off renders:
 ```bash
 python main.py                  # uses config.yaml
 python main.py --config foo.yaml
-```
-
-### Managing users
-
-```bash
-python seed_users.py add <username> <password>
-python seed_users.py list
-python seed_users.py remove <username>
 ```
 
 ### Adding a new certificate template
@@ -73,17 +71,11 @@ python seed_users.py remove <username>
    fields are shown, and the max signatories the layout accommodates.
 3. That's it. The dashboard picks up the new template automatically:
    selector entry, form-field visibility, preset scoping, signatory caps.
-   No changes needed in `app.py`, `jobs.py`, `models.py`, or the dashboard.
+   No changes needed in `app.py`, `jobs.py`, or the dashboard.
 
 ## Deploy to Render
 
-### 1. Create a PostgreSQL database
-
-- On Render, click **New > PostgreSQL**
-- Free tier is fine
-- Note the **Internal Database URL** after creation
-
-### 2. Create a Web Service
+No database is needed. Create a Web Service:
 
 - Click **New > Web Service**
 - Connect your GitHub repo
@@ -92,39 +84,52 @@ python seed_users.py remove <username>
 
 | Variable | Value |
 |----------|-------|
-| `DATABASE_URL` | (paste Internal Database URL from step 1) |
 | `FLASK_SECRET_KEY` | (run `python -c "import secrets; print(secrets.token_hex(32))"`) |
 | `SENDGRID_API_KEY` | (your SendGrid API key) |
 | `SENDER_NAME` | `ThinkNeuro` |
 | `SENDER_EMAIL` | (your verified sender email) |
 | `SEND_EMAILS` | `true` (set to anything else for dry-run mode) |
+| `RESULTS_EMAIL` | (optional — where batch results reports go; defaults to `SENDER_EMAIL`) |
 | `DEFAULT_ADMIN_USER` | `admin` |
-| `DEFAULT_ADMIN_PASSWORD` | (choose a strong password) |
+| `DEFAULT_ADMIN_PASSWORD` | (choose a strong password — these are the live login credentials) |
 | `RENDER_EXTERNAL_URL` | (auto-set by Render — used for keep-alive pings during long batches) |
 
 - Click **Deploy**
-
-### 3. Access the app
 
 Once deployed, Render gives you a URL like
 `https://certificate-automation-xxxx.onrender.com`. Log in with the admin
 credentials you set above.
 
-### Schema migrations
+### Storage model (what survives what)
 
-`db.create_all()` runs on startup and creates missing tables. A lightweight
-idempotent migration step in `create_app()` handles in-place column additions
-(e.g. `presets.template_id`, which was added when the multi-template feature
-shipped). Existing rows are backfilled to `completion` so pre-existing
-presets keep rendering the original layout without any manual SQL.
+| Data | Where it lives | Survives restart/redeploy? |
+|------|----------------|---------------------------|
+| Presets in `presets.json` | Git repo, ships with each deploy | Yes |
+| Presets saved via the UI | Instance disk overlay | No — use **Export** to promote one into `presets.json` |
+| Job progress / send history | Process memory | No — the results CSV (downloaded or emailed) is the durable record |
+| Student names/emails | Memory during the batch only | Never persists server-side (by design) |
+
+### Recovering an interrupted batch
+
+1. If the app is still up and the job shows **failed**: click
+   **Re-send missing only** — no CSV needed.
+2. If the server restarted mid-batch: find the latest checkpoint/final
+   report email (sent to `RESULTS_EMAIL`), download its `results.csv`,
+   and upload it on the dashboard like a normal student list. Rows
+   marked `sent` are excluded automatically; preview and send the rest.
+3. Last resort with no CSV: Render's log stream prints one
+   `RESULT job=N i/total sent|failed name <email>` line per student —
+   reconstruct the sent list from there.
 
 ## Architecture
 
 ```
 app.py                  Flask web application (routes, preset API, renders)
 wsgi.py                 Gunicorn entry point
-models.py               DB models (User, Preset, Job, SendHistory, PreviewDraft)
-jobs.py                 Background job thread (render + email + keep-alive)
+store.py                Storage: file-backed presets + in-memory jobs/drafts
+presets.json            Repo-committed presets (durable across deploys)
+jobs.py                 Background job thread (render + email + keep-alive
+                        + results CSV / checkpoint reports)
 renderer.py             HTML → PDF via Playwright/Chromium; template name
                         is parametric
 emailer.py              SendGrid API sender with dry-run mode + smoke test
@@ -133,7 +138,6 @@ template_registry.py    Declarative registry of available certificate
                         templates: file, editable fields, signatory fields,
                         max signatories
 main.py                 Legacy CLI entry point
-seed_users.py           User management CLI
 templates/              Certificate HTML templates + font assets
   certificate.html              Certificate of Completion
   certificate_recognition.html  Certificate of Recognition
@@ -144,7 +148,7 @@ config.yaml             Legacy CLI config (presets replace this in web mode)
 Dockerfile              Container config for Render
 ```
 
-Each pipeline stage is its own module. Swap the email provider, database,
+Each pipeline stage is its own module. Swap the email provider, storage,
 or PDF renderer without touching the rest. Adding a new certificate layout
 is a template-file + registry-entry change; no code in the render or send
 path needs to know about it.

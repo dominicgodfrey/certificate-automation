@@ -1,19 +1,35 @@
 """ThinkNeuro Certificate Automation — Web Application."""
+import hmac
 import json
 import os
 from pathlib import Path
 
-import bcrypt
 from dotenv import load_dotenv
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, session)
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_login import (LoginManager, UserMixin, login_user, logout_user,
+                         login_required, current_user)
 
-from models import db, User, Preset, PreviewDraft
+from store import preset_store, job_store, preview_drafts
 from template_registry import TEMPLATES, DEFAULT_TEMPLATE, template_file
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
+
+ADMIN_USER_ID = "admin"
+
+
+class AdminUser(UserMixin):
+    """The single operator account, defined by env vars — no database.
+
+    Username comes from DEFAULT_ADMIN_USER (default 'admin'); the
+    password is DEFAULT_ADMIN_PASSWORD and must be set for login to work.
+    """
+    id = ADMIN_USER_ID
+
+    @property
+    def username(self):
+        return os.environ.get("DEFAULT_ADMIN_USER", "admin")
 
 
 def create_app() -> Flask:
@@ -25,88 +41,22 @@ def create_app() -> Flask:
 
     app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
-    # Use DATABASE_URL for production (PostgreSQL on Render),
-    # fall back to SQLite for local development.
-    database_url = os.environ.get("DATABASE_URL", f"sqlite:///{ROOT / 'data' / 'app.db'}")
-    # Render provides postgres:// but SQLAlchemy requires postgresql://
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    app.config["SQLALCHEMY_DATABASE_URI"] = database_url
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    # No database: presets live in presets.json (+ a local overlay),
+    # jobs and previews are in-memory (single Gunicorn worker), and the
+    # durable record of every batch is its results CSV (download/email).
+    print("Storage: presets.json + in-memory jobs (no database)")
+    if not os.environ.get("DEFAULT_ADMIN_PASSWORD"):
+        print("WARNING: DEFAULT_ADMIN_PASSWORD is not set — login disabled.")
 
-    # Log the DB host (no password) at startup so it's obvious on Render
-    # which database is wired up — Supabase, Render PG, or local SQLite —
-    # and easy to spot if the env var ever points somewhere unexpected.
+    # Loud-but-non-fatal email-provider credential smoke test. Catches
+    # a revoked / rate-limited SendGrid API key before an operator
+    # clicks Send and watches 400 students fail in a row.
     try:
-        from urllib.parse import urlparse
-        _u = urlparse(database_url)
-        _backend = _u.scheme.split("+")[0]
-        _host = _u.hostname or "(local)"
-        print(f"DB backend={_backend} host={_host}")
-    except Exception:
-        pass
-
-    db.init_app(app)
-    with app.app_context():
-        db.create_all()
-
-        # Lightweight, idempotent migration: add Preset.template_id to
-        # existing databases. SQLAlchemy's create_all() creates missing
-        # tables but never adds columns to existing ones, so when this
-        # column was introduced in the multi-template feature, upgrading
-        # instances need a one-shot ALTER TABLE. Existing rows are
-        # backfilled to 'completion' so old presets keep rendering the
-        # original layout.
-        from sqlalchemy import inspect, text
-        insp = inspect(db.engine)
-        if "presets" in insp.get_table_names():
-            cols = {c["name"] for c in insp.get_columns("presets")}
-            if "template_id" not in cols:
-                with db.engine.begin() as conn:
-                    conn.execute(text(
-                        "ALTER TABLE presets ADD COLUMN template_id "
-                        "VARCHAR(50) NOT NULL DEFAULT 'completion'"
-                    ))
-                print("Migration: added presets.template_id column.")
-
-        # Auto-seed admin on first startup if no users exist
-        if User.query.count() == 0:
-            admin_user = os.environ.get("DEFAULT_ADMIN_USER", "admin")
-            admin_pass = os.environ.get("DEFAULT_ADMIN_PASSWORD", "")
-            if admin_pass:
-                pw_hash = bcrypt.hashpw(
-                    admin_pass.encode("utf-8"), bcrypt.gensalt()
-                ).decode("utf-8")
-                db.session.add(User(username=admin_user, password_hash=pw_hash))
-                db.session.commit()
-                print(f"Auto-seeded admin user: {admin_user}")
-
-        # Stuck-job sweep: if the worker was killed (Render restart, deploy,
-        # OOM) while a job was running, it is permanently stuck in 'running'
-        # with no thread to finish it. Mark any such jobs as failed so the
-        # user sees a clear state and can re-send.
-        from datetime import datetime, timezone
-        from models import Job
-        stuck = Job.query.filter_by(status="running").all()
-        if stuck:
-            now = datetime.now(timezone.utc)
-            for j in stuck:
-                j.status = "failed"
-                j.error_message = ("Server restarted while job was running. "
-                                   "Please re-send the batch.")
-                j.completed_at = now
-            db.session.commit()
-            print(f"Marked {len(stuck)} stuck job(s) as failed on startup.")
-
-        # Loud-but-non-fatal email-provider credential smoke test. Catches
-        # a revoked / rate-limited SendGrid API key before an operator
-        # clicks Send and watches 400 students fail in a row.
-        try:
-            from emailer import EmailSender
-            ok, msg = EmailSender.smoke_test()
-            print(("Email OK: " if ok else "Email WARNING: ") + msg)
-        except Exception as e:
-            print(f"Email smoke test crashed (non-fatal): {e}")
+        from emailer import EmailSender
+        ok, msg = EmailSender.smoke_test()
+        print(("Email OK: " if ok else "Email WARNING: ") + msg)
+    except Exception as e:
+        print(f"Email smoke test crashed (non-fatal): {e}")
 
     # --- Login manager ---
     login_manager = LoginManager()
@@ -116,21 +66,15 @@ def create_app() -> Flask:
 
     @login_manager.user_loader
     def load_user(user_id):
-        return db.session.get(User, int(user_id))
+        if user_id == ADMIN_USER_ID:
+            return AdminUser()
+        return None
 
     # --- Helpers ---
 
     def _get_preview_draft():
-        """Return the current user's active PreviewDraft, or None."""
-        draft_id = session.get("preview_draft_id")
-        if not draft_id:
-            return None
-        draft = db.session.get(PreviewDraft, draft_id)
-        # Guard against a user reusing a session after the draft was deleted
-        # or the cookie pointing at another user's draft.
-        if draft is None or draft.user_id != current_user.id:
-            return None
-        return draft
+        """Return the current user's active preview draft, or None."""
+        return preview_drafts.get(current_user.id)
 
     # --- Routes ---
 
@@ -141,7 +85,7 @@ def create_app() -> Flask:
         The background job thread pings this from within the same instance
         during long batches so the host platform sees continuous HTTP
         traffic and doesn't spin the web instance down mid-send. No auth,
-        no DB hit — must stay cheap.
+        no storage hit — must stay cheap.
         """
         return "ok", 200
 
@@ -160,10 +104,14 @@ def create_app() -> Flask:
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
 
-            user = User.query.filter_by(username=username).first()
-            if user and bcrypt.checkpw(password.encode("utf-8"),
-                                       user.password_hash.encode("utf-8")):
-                login_user(user)
+            expected_user = os.environ.get("DEFAULT_ADMIN_USER", "admin")
+            expected_pass = os.environ.get("DEFAULT_ADMIN_PASSWORD", "")
+            # compare_digest on both fields to avoid timing side-channels;
+            # an empty configured password always fails.
+            if expected_pass \
+                    and hmac.compare_digest(username, expected_user) \
+                    and hmac.compare_digest(password, expected_pass):
+                login_user(AdminUser())
                 return redirect(url_for("dashboard"))
             else:
                 flash("Invalid username or password.", "error")
@@ -179,12 +127,11 @@ def create_app() -> Flask:
     @app.route("/dashboard", methods=["GET"])
     @login_required
     def dashboard():
-        from models import Job, SendHistory
-        presets = Preset.query.order_by(Preset.name).all()
+        presets = preset_store.list()
         # Shape presets for the template so the frontend can filter by
         # template_id client-side without an extra request.
         presets_view = [
-            {"id": p.id, "name": p.name, "template_id": p.template_id}
+            {"id": p["id"], "name": p["name"], "template_id": p["template_id"]}
             for p in presets
         ]
         # Load last-used preset from session, or default to empty
@@ -192,40 +139,16 @@ def create_app() -> Flask:
         active_config = None
         active_template_id = session.get("active_template_id", DEFAULT_TEMPLATE)
         if active_preset_id:
-            preset = db.session.get(Preset, active_preset_id)
+            preset = preset_store.get(active_preset_id)
             if preset:
-                active_config = json.loads(preset.config_json)
-                active_template_id = preset.template_id
+                active_config = preset["config"]
+                active_template_id = preset["template_id"]
 
         # Surface any of THIS user's failed jobs that still have students
         # missing a successful send. Lets the operator finish an
         # interrupted batch from the dashboard instead of having to
         # remember the URL of the failed job page.
-        unfinished = []
-        recent_failed = (
-            Job.query
-            .filter(Job.created_by == current_user.id)
-            .filter(Job.status == "failed")
-            .order_by(Job.created_at.desc())
-            .limit(5)
-            .all()
-        )
-        for j in recent_failed:
-            try:
-                total = j.total_students or 0
-                sent = SendHistory.query.filter_by(
-                    job_id=j.id, status="sent").count()
-                missing = total - sent
-                if missing > 0:
-                    unfinished.append({
-                        "id": j.id,
-                        "total": total,
-                        "sent": sent,
-                        "missing": missing,
-                        "created_at": j.created_at,
-                    })
-            except Exception:
-                continue
+        unfinished = job_store.unfinished(current_user.id)
 
         return render_template("dashboard.html",
                                presets=presets_view,
@@ -241,15 +164,15 @@ def create_app() -> Flask:
     @app.route("/presets/load/<int:preset_id>", methods=["GET"])
     @login_required
     def load_preset(preset_id):
-        preset = db.session.get(Preset, preset_id)
+        preset = preset_store.get(preset_id)
         if not preset:
             return jsonify({"error": "Preset not found"}), 404
         session["active_preset_id"] = preset_id
-        session["active_template_id"] = preset.template_id
+        session["active_template_id"] = preset["template_id"]
         return jsonify({
-            "config": json.loads(preset.config_json),
-            "name": preset.name,
-            "template_id": preset.template_id,
+            "config": preset["config"],
+            "name": preset["name"],
+            "template_id": preset["template_id"],
         })
 
     @app.route("/presets/save", methods=["POST"])
@@ -268,50 +191,66 @@ def create_app() -> Flask:
         if not name or not config:
             return jsonify({"error": "Name and config are required"}), 400
 
-        existing = Preset.query.filter_by(name=name).first()
-        if existing:
-            # Don't let a save reassign a preset to a different template —
-            # presets are template-scoped, so a same-name preset under a
-            # different template is a separate row.
-            if existing.template_id != template_id:
-                return jsonify({
-                    "error": (f"A preset named '{name}' already exists for "
-                              f"the '{existing.template_id}' template. "
-                              "Choose a different name.")
-                }), 400
-            existing.config_json = json.dumps(config)
-            db.session.commit()
-            session["active_preset_id"] = existing.id
-            session["active_template_id"] = existing.template_id
-            return jsonify({"message": f"Updated '{name}'", "id": existing.id})
-        else:
-            preset = Preset(name=name, config_json=json.dumps(config),
-                            template_id=template_id)
-            db.session.add(preset)
-            db.session.commit()
-            session["active_preset_id"] = preset.id
-            session["active_template_id"] = preset.template_id
-            return jsonify({"message": f"Saved '{name}'", "id": preset.id})
+        existing = preset_store.find_by_name(name)
+        # Don't let a save reassign a preset to a different template —
+        # presets are template-scoped, so a same-name preset under a
+        # different template is a separate entry.
+        if existing and existing["template_id"] != template_id:
+            return jsonify({
+                "error": (f"A preset named '{name}' already exists for "
+                          f"the '{existing['template_id']}' template. "
+                          "Choose a different name.")
+            }), 400
+
+        preset, created = preset_store.save(name, config, template_id)
+        session["active_preset_id"] = preset["id"]
+        session["active_template_id"] = preset["template_id"]
+        verb = "Saved" if created else "Updated"
+        return jsonify({"message": f"{verb} '{name}'", "id": preset["id"]})
 
     @app.route("/presets/delete/<int:preset_id>", methods=["DELETE"])
     @login_required
     def delete_preset(preset_id):
-        preset = db.session.get(Preset, preset_id)
-        if not preset:
+        name = preset_store.delete(preset_id)
+        if name is None:
             return jsonify({"error": "Preset not found"}), 404
-        name = preset.name
-        db.session.delete(preset)
-        db.session.commit()
         if session.get("active_preset_id") == preset_id:
             session.pop("active_preset_id", None)
         return jsonify({"message": f"Deleted '{name}'"})
+
+    @app.route("/presets/export/<int:preset_id>", methods=["GET"])
+    @login_required
+    def export_preset(preset_id):
+        """Download a preset as JSON, ready to paste into presets.json.
+
+        Presets saved through the UI live on the instance's ephemeral
+        disk and are lost on redeploy; adding the exported entry to the
+        repo's presets.json makes it permanent.
+        """
+        preset = preset_store.get(preset_id)
+        if not preset:
+            return jsonify({"error": "Preset not found"}), 404
+        slug = "".join(c if c.isalnum() else "_" for c in preset["name"]).strip("_")
+        from flask import Response
+        return Response(
+            json.dumps(preset, indent=2),
+            mimetype="application/json",
+            headers={"Content-Disposition":
+                     f"attachment; filename=preset_{slug}.json"},
+        )
 
     # --- CSV upload ---
 
     @app.route("/upload-csv", methods=["POST"])
     @login_required
     def upload_csv():
-        """Parse an uploaded CSV/XLSX and return headers + rows as JSON."""
+        """Parse an uploaded CSV/XLSX and return headers + rows as JSON.
+
+        Special case: a results CSV from a previous batch (headers
+        name/email/status/error) is the retry path after a server
+        restart — rows already marked 'sent' are dropped so the operator
+        can re-send to just the students who still need a certificate.
+        """
         import pandas as pd
         import io
 
@@ -334,21 +273,35 @@ def create_app() -> Flask:
         df.columns = [str(c).strip() for c in df.columns]
         df = df.fillna("")
 
+        note = None
+        from jobs import RESULTS_CSV_HEADERS
+        if list(df.columns) == RESULTS_CSV_HEADERS:
+            before = len(df)
+            df = df[df["status"].str.strip().str.lower() != "sent"]
+            excluded = before - len(df)
+            note = (f"Results CSV detected — excluded {excluded} already-sent "
+                    f"student{'s' if excluded != 1 else ''}; "
+                    f"{len(df)} left to send.")
+            if len(df) == 0:
+                return jsonify({"error":
+                                "Results CSV detected, but every student in it "
+                                "was already sent — nothing to re-send."}), 400
+
         headers = list(df.columns)
         rows = df.astype(str).values.tolist()
 
-        return jsonify({"headers": headers, "rows": rows})
+        return jsonify({"headers": headers, "rows": rows, "note": note})
 
     # --- Generate preview ---
 
     @app.route("/generate-preview", methods=["POST"])
     @login_required
     def generate_preview():
-        """Persist certificate config + student list as a PreviewDraft.
+        """Store certificate config + student list as the user's draft.
 
-        Stored server-side (not in the session cookie) so that large
-        batches — up to 1000+ students — don't exceed the ~4KB signed
-        cookie limit and silently fail.
+        Kept server-side in memory (not in the session cookie) so that
+        large batches — up to 1000+ students — don't exceed the ~4KB
+        signed cookie limit and silently fail.
         """
         data = request.get_json()
         config = data.get("config")
@@ -369,22 +322,12 @@ def create_app() -> Flask:
         if issues:
             return jsonify({"error": "Student data issues:\n" + "\n".join(issues)}), 400
 
-        # Drop any prior drafts for this user so the table doesn't accumulate
-        # abandoned previews.
-        PreviewDraft.query.filter_by(user_id=current_user.id).delete()
-
-        draft = PreviewDraft(
-            user_id=current_user.id,
-            config_json=json.dumps(config),
-            students_json=json.dumps(students),
-        )
-        db.session.add(draft)
-        db.session.commit()
-
-        session["preview_draft_id"] = draft.id
-        # Clear any stale cookie-based preview data from before this change.
-        session.pop("preview_config", None)
-        session.pop("preview_students", None)
+        # Replaces any prior draft for this user, so abandoned previews
+        # don't accumulate.
+        preview_drafts[current_user.id] = {
+            "config": config,
+            "students": students,
+        }
 
         return jsonify({"redirect": url_for("preview")})
 
@@ -397,9 +340,8 @@ def create_app() -> Flask:
         if draft is None:
             flash("No data to preview. Please fill out the form first.", "error")
             return redirect(url_for("dashboard"))
-        config = json.loads(draft.config_json)
-        students = json.loads(draft.students_json)
-        return render_template("preview.html", config=config, students=students)
+        return render_template("preview.html", config=draft["config"],
+                               students=draft["students"])
 
     # --- Certificate rendering for preview ---
 
@@ -413,8 +355,8 @@ def create_app() -> Flask:
         draft = _get_preview_draft()
         if draft is None:
             return "No preview data", 400
-        config = json.loads(draft.config_json)
-        students = json.loads(draft.students_json)
+        config = draft["config"]
+        students = draft["students"]
         if student_index < 0 or student_index >= len(students):
             return "Invalid student index", 400
 
@@ -448,8 +390,8 @@ def create_app() -> Flask:
         draft = _get_preview_draft()
         if draft is None:
             return "No preview data", 400
-        config = json.loads(draft.config_json)
-        students = json.loads(draft.students_json)
+        config = draft["config"]
+        students = draft["students"]
         if student_index < 0 or student_index >= len(students):
             return "Invalid student index", 400
 
@@ -512,47 +454,34 @@ def create_app() -> Flask:
     def send_certificates():
         """Create a background job to render and email all certificates."""
         from datetime import datetime, timedelta, timezone
-        from models import Job
         from jobs import start_job
 
         draft = _get_preview_draft()
         if draft is None:
             return jsonify({"error": "No data to send"}), 400
-        config = json.loads(draft.config_json)
-        students = json.loads(draft.students_json)
 
         # Duplicate-send guard: if the user already has a job that's queued
         # or running and was created in the last 10 minutes, refuse to start
         # a second one. Protects against double-clicks and accidental
         # refreshes that would otherwise email every student twice.
         recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
-        in_flight = (
-            Job.query
-            .filter(Job.created_by == current_user.id)
-            .filter(Job.status.in_(("queued", "running")))
-            .filter(Job.created_at >= recent_cutoff)
-            .first()
-        )
+        in_flight = job_store.in_flight(current_user.id, recent_cutoff)
         if in_flight is not None:
             return jsonify({
                 "error": "A send is already in progress. Please wait for "
                          "it to complete.",
-                "job_id": in_flight.id,
+                "job_id": in_flight["id"],
             }), 400
 
-        job = Job(
-            status="queued",
-            total_students=len(students),
-            config_json=json.dumps(config),
-            students_json=json.dumps(students),
+        job = job_store.create(
+            config=draft["config"],
+            students=draft["students"],
             created_by=current_user.id,
         )
-        db.session.add(job)
-        db.session.commit()
 
-        start_job(app, job.id)
+        start_job(job["id"])
 
-        return jsonify({"redirect": url_for("job_progress", job_id=job.id)})
+        return jsonify({"redirect": url_for("job_progress", job_id=job["id"])})
 
     # --- Resend only missing students from a prior job ---
 
@@ -561,29 +490,24 @@ def create_app() -> Flask:
     def resend_missing(job_id):
         """Create a new job that re-sends only students who did NOT receive
         the certificate in a prior (typically failed) job. "Missing" =
-        anyone from the original batch without a 'sent' SendHistory row,
-        so this covers both explicitly failed sends and students who were
-        never reached because the worker died mid-batch.
+        anyone from the original batch without a 'sent' result, so this
+        covers both explicitly failed sends and students who were never
+        reached because the worker died mid-batch.
 
         Safe to call repeatedly: if the original batch fully succeeded,
         the set of missing students is empty and we return 400.
         """
         from datetime import datetime, timedelta, timezone
-        from models import Job, SendHistory
         from jobs import start_job
 
-        job = db.session.get(Job, job_id)
+        job = job_store.get(job_id)
         if job is None:
             return jsonify({"error": "Job not found"}), 404
-        if job.created_by != current_user.id:
+        if job["created_by"] != current_user.id:
             return jsonify({"error": "Not your job"}), 403
 
-        original_students = json.loads(job.students_json)
-        sent_emails = {
-            h.student_email for h in
-            SendHistory.query.filter_by(job_id=job.id, status="sent").all()
-        }
-        missing = [s for s in original_students
+        sent_emails = job_store.sent_emails(job_id)
+        missing = [s for s in job["students"]
                    if s.get("email") not in sent_emails]
 
         if not missing:
@@ -595,34 +519,24 @@ def create_app() -> Flask:
         # Same duplicate-send guard as /send-certificates. Applies here too:
         # if a resend is already running we shouldn't kick off another one.
         recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
-        in_flight = (
-            Job.query
-            .filter(Job.created_by == current_user.id)
-            .filter(Job.status.in_(("queued", "running")))
-            .filter(Job.created_at >= recent_cutoff)
-            .first()
-        )
+        in_flight = job_store.in_flight(current_user.id, recent_cutoff)
         if in_flight is not None:
             return jsonify({
                 "error": "A send is already in progress. Please wait for "
                          "it to complete.",
-                "job_id": in_flight.id,
+                "job_id": in_flight["id"],
             }), 400
 
-        new_job = Job(
-            status="queued",
-            total_students=len(missing),
-            config_json=job.config_json,  # reuse the original snapshot
-            students_json=json.dumps(missing),
+        new_job = job_store.create(
+            config=job["config"],  # reuse the original snapshot
+            students=missing,
             created_by=current_user.id,
         )
-        db.session.add(new_job)
-        db.session.commit()
 
-        start_job(app, new_job.id)
+        start_job(new_job["id"])
 
         return jsonify({
-            "redirect": url_for("job_progress", job_id=new_job.id),
+            "redirect": url_for("job_progress", job_id=new_job["id"]),
             "missing_count": len(missing),
         })
 
@@ -631,42 +545,48 @@ def create_app() -> Flask:
     @app.route("/jobs/<int:job_id>")
     @login_required
     def job_progress(job_id):
-        from models import Job
-        job = db.session.get(Job, job_id)
+        job = job_store.get(job_id)
         if not job:
-            flash("Job not found.", "error")
+            flash("Job not found — the server may have restarted. If a send "
+                  "was interrupted, re-upload its results CSV (emailed to "
+                  "the operator inbox) to resume without duplicates.", "error")
             return redirect(url_for("dashboard"))
-        config = json.loads(job.config_json)
-        students = json.loads(job.students_json)
-        return render_template("job.html", job=job, config=config, students=students)
+        return render_template("job.html", job=job, config=job["config"],
+                               students=job["students"])
 
     # --- Job status API (polled by frontend) ---
 
     @app.route("/jobs/<int:job_id>/status")
     @login_required
     def job_status(job_id):
-        from models import Job, SendHistory
-        job = db.session.get(Job, job_id)
+        job = job_store.get(job_id)
         if not job:
             return jsonify({"error": "Job not found"}), 404
 
-        # Get per-student results
-        history = SendHistory.query.filter_by(job_id=job_id).order_by(
-            SendHistory.id).all()
-        results = [{
-            "name": h.student_name,
-            "email": h.student_email,
-            "status": h.status,
-            "error": h.error_message,
-        } for h in history]
-
         return jsonify({
-            "status": job.status,
-            "total": job.total_students,
-            "processed": job.processed_count,
-            "error": job.error_message,
-            "results": results,
+            "status": job["status"],
+            "total": job["total_students"],
+            "processed": job["processed_count"],
+            "error": job["error_message"],
+            "results": list(job["results"]),
         })
+
+    # --- Job results CSV (the durable, operator-held send record) ---
+
+    @app.route("/jobs/<int:job_id>/results.csv")
+    @login_required
+    def job_results_csv(job_id):
+        from jobs import results_csv_text
+        job = job_store.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        from flask import Response
+        return Response(
+            results_csv_text(job),
+            mimetype="text/csv",
+            headers={"Content-Disposition":
+                     f"attachment; filename=job_{job_id}_results.csv"},
+        )
 
     # --- Download all PDFs as zip ---
 
@@ -681,8 +601,8 @@ def create_app() -> Flask:
         draft = _get_preview_draft()
         if draft is None:
             return jsonify({"error": "No data"}), 400
-        config = json.loads(draft.config_json)
-        students = json.loads(draft.students_json)
+        config = draft["config"]
+        students = draft["students"]
 
         output_dir = ROOT / "output" / "download"
         output_dir.mkdir(parents=True, exist_ok=True)
