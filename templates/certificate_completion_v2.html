@@ -5,13 +5,6 @@
 <title>Certificate</title>
 <style>
   @font-face {
-    font-family: 'Alice';
-    src: url('../assets/fonts/Alice-Regular.woff2') format('woff2');
-    font-weight: 400;
-    font-style: normal;
-    font-display: block;
-  }
-  @font-face {
     font-family: 'Alex Brush';
     src: url('../assets/fonts/AlexBrush-Regular.woff2') format('woff2');
     font-weight: 400;
@@ -44,7 +37,7 @@
     position: relative;
   }
   .content {
-    max-width: 6.45in;  /* must stay clear of ribbon's left edge (~6.53in) */
+    max-width: 6.2in;  /* must stay clear of ribbon's left edge (~6.26in) */
   }
   .header {
     font-size: 48pt;
@@ -57,7 +50,6 @@
     margin-top: 0.1in;
   }
   .name {
-    font-family: "Alice", "Times New Roman", serif;
     font-size: 36pt;
     color: #000;
     margin-top: 0.35in;
@@ -73,7 +65,6 @@
     margin-top: 0.25in;
   }
   .program-title {
-    font-family: "Alice", "Times New Roman", serif;
     font-size: 22pt;
     font-weight: normal;
     margin-top: 0.05in;
@@ -96,7 +87,7 @@
   .ribbon-outer {
     position: absolute;
     top: 0;           /* starts at padding edge; certificate border stays continuous above */
-    right: 0.52in;  /* centers the ribbon between the program title and the border */
+    right: 0.78in;  /* centers the ribbon between the program title and the border */
     width: 2.5in;
     height: 5.0in;
     background: #0c304e;  /* border/trim color */
@@ -132,7 +123,7 @@
     position: absolute;
     bottom: 1.05in;
     left: 0.7in;  /* matches .border's padding, so the first signature aligns with the body text */
-    right: 3.02in;  /* right edge aligns with ribbon's left edge */
+    right: 3.28in;  /* right edge aligns with ribbon's left edge */
     display: flex;
     gap: 0.35in;
     justify-content: flex-start;
@@ -194,7 +185,7 @@
   <div class="page">
     <div class="border">
       <div class="content">
-      <div class="header">ThinkNeuro, LLC</div>
+      <div class="header">ThinkNeuro</div>
       <div class="date">{{ date }}</div>
 
       <div class="name" id="student-name">{{ student_name }}</div>
