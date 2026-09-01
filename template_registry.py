@@ -43,6 +43,19 @@ TEMPLATES = {
         "sig_required": ["cursive", "name"],
         "max_signatories": 4,
     },
+    "recognition_v2": {
+        "label": "Certificate of Recognition (v2)",
+        "file": "certificate_recognition_v2.html",
+        "fields": {
+            "program_description": True,
+            "footer": True,
+            "email_subject": True,
+            "email_body": True,
+        },
+        "sig_fields": ["cursive", "name", "title", "degrees", "institution"],
+        "sig_required": ["cursive", "name", "title"],
+        "max_signatories": 2,
+    },
     "recognition": {
         "label": "Certificate of Recognition",
         "file": "certificate_recognition.html",

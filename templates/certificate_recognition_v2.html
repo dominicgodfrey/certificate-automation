@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Certificate of Recognition</title>
+<style>
+  @font-face {
+    font-family: 'Alex Brush';
+    src: url('../assets/fonts/AlexBrush-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
+  @page {
+    size: 11in 8.5in;
+    margin: 0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 11in;
+    height: 8.5in;
+    font-family: "Times New Roman", Times, serif;
+    color: #000;
+  }
+  .page {
+    width: 11in;
+    height: 8.5in;
+    background: #c7d5ef;  /* matches logo.png's baked-in background so it blends */
+    padding: 0.35in;
+    position: relative;
+  }
+  .border {
+    width: 100%;
+    height: 100%;
+    border: 4px solid #0c304e;
+    padding: 0.55in 0.7in;
+    position: relative;
+  }
+
+  .logo-wrap {
+    text-align: center;
+  }
+  .logo {
+    width: 2.05in;
+    height: auto;
+  }
+
+  .title {
+    font-family: "Alex Brush", cursive;
+    font-size: 54pt;
+    text-align: center;
+    line-height: 1.0;
+    margin-top: 0.35in;
+    font-weight: 400;
+  }
+
+  .awarded {
+    /* Liberation Sans is the metric-compatible Arial the Docker image ships */
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
+    text-align: center;
+    font-size: 14pt;
+    letter-spacing: 0.22em;
+    margin-top: 0.22in;
+    text-transform: uppercase;
+  }
+
+  /* Name, its rule and the description all share one centred 7in column */
+  .column {
+    width: 7in;
+    margin: 0 auto;
+  }
+  .name-wrap {
+    text-align: center;
+    margin-top: 0.2in;
+  }
+  .name {
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
+    font-size: 50pt;
+    font-weight: bold;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    display: inline-block;
+    max-width: 100%;
+  }
+  .name-underline {
+    border-top: 3px solid #000;
+    margin-top: 0.02in;
+  }
+  .description {
+    text-align: center;
+    font-size: 16pt;
+    margin-top: 0.14in;
+    line-height: 1.4;
+    text-wrap: balance;  /* evens out the line lengths instead of leaving a short last line */
+  }
+
+  /* Signature block — bottom-left, 1-2 signatories side by side */
+  .signatures {
+    position: absolute;
+    bottom: 0.55in;
+    left: 0.7in;  /* matches .border's padding */
+    display: flex;
+    gap: 0.45in;
+    align-items: flex-start;
+  }
+  .signature {
+    min-width: 2.45in;
+    max-width: 3.1in;
+    text-align: left;
+    overflow: hidden;
+  }
+  .sig-cursive {
+    font-family: "Alex Brush", cursive;
+    font-size: 36pt;
+    line-height: 1.0;
+    white-space: nowrap;
+    display: inline-block;
+    margin-bottom: 0.03in;
+    padding-left: 0.05in;
+  }
+  .sig-line {
+    border-top: 2px solid #000;
+    width: 100%;
+  }
+  .sig-name {
+    font-size: 12pt;
+    font-weight: bold;
+    margin-top: 0.08in;
+    white-space: nowrap;
+    padding-left: 0.05in;
+  }
+  .sig-title {
+    font-size: 11pt;
+    font-style: italic;
+    white-space: nowrap;
+    padding-left: 0.05in;
+    margin-top: 0.02in;
+  }
+  .sig-degrees {
+    font-size: 11pt;
+    font-weight: bold;
+    white-space: nowrap;
+    padding-left: 0.05in;
+    margin-top: 0.02in;
+  }
+  .sig-inst {
+    font-size: 11pt;
+    font-style: italic;
+    white-space: nowrap;
+    padding-left: 0.05in;
+    margin-top: 0.02in;
+  }
+
+  .footer {
+    position: absolute;
+    bottom: 0.15in;
+    right: 0.15in;
+    font-size: 9pt;
+    text-align: left;
+    max-width: 3.25in;  /* snug around the balanced lines, so the block sits near the border */
+    text-wrap: balance;  /* evens out the 3 line lengths */
+    line-height: 1.35;
+    color: #0c304e;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="border">
+
+      <div class="logo-wrap">
+        <img src="../assets/logo.png" class="logo" alt="ThinkNeuro logo">
+      </div>
+
+      <div class="title">Certificate of Recognition</div>
+
+      <div class="awarded">Awarded to</div>
+
+      <div class="column">
+        <div class="name-wrap">
+          <div class="name" id="student-name">{{ student_name }}</div>
+        </div>
+        <div class="name-underline"></div>
+        <div class="description">{{ program_description }}</div>
+      </div>
+
+      <div class="signatures">
+        {% for sig in signatories %}
+        <div class="signature">
+          <div class="sig-cursive">{{ sig.cursive }}</div>
+          <div class="sig-line"></div>
+          <div class="sig-name">{{ sig.name }}</div>
+          {% if sig.title %}<div class="sig-title">{{ sig.title }}</div>{% endif %}
+          {% if sig.degrees %}<div class="sig-degrees">{{ sig.degrees }}</div>{% endif %}
+          {% if sig.institution %}<div class="sig-inst">{{ sig.institution }}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="footer">{{ footer }}</div>
+
+    </div>
+  </div>
+
+  <script>
+    document.fonts.ready.then(() => {
+      // Auto-shrink the student name if it's wider than its container.
+      const nameEl = document.getElementById('student-name');
+      if (nameEl) {
+        const maxWidth = nameEl.parentElement.clientWidth;
+        let size = 50;
+        nameEl.style.fontSize = size + 'pt';
+        while (nameEl.scrollWidth > maxWidth && size > 22) {
+          size -= 1;
+          nameEl.style.fontSize = size + 'pt';
+        }
+      }
+
+      // Auto-shrink individual cursive signatures that overflow their container.
+      document.querySelectorAll('.sig-cursive').forEach(el => {
+        const containerWidth = el.parentElement.clientWidth;
+        let size = 36;
+        el.style.fontSize = size + 'pt';
+        while (el.scrollWidth > containerWidth && size > 16) {
+          size -= 0.5;
+          el.style.fontSize = size + 'pt';
+        }
+      });
+    });
+  </script>
+</body>
+</html>
